@@ -86,7 +86,10 @@ fun formatSpotifyError(e: Throwable): String = when (e) {
     is SpotifyPremiumRequiredException -> "Spotify Premium necessário"
     is java.net.SocketTimeoutException ->
         "Tempo esgotado ao falar com o Spotify (timeout) — verifique a conexão e tente de novo"
-    else -> e.message?.takeIf { it.isNotBlank() } ?: "Falha ao falar com o Spotify"
+    is android.os.NetworkOnMainThreadException ->
+        "Erro interno: chamada de rede na thread principal (NetworkOnMainThreadException) — atualize o app"
+    else -> e.message?.takeIf { it.isNotBlank() }
+        ?: "Falha ao falar com o Spotify (${e.javaClass.simpleName})"
 }
 
 /** Minimal scopes for the clean core. Request only these, nothing broader. */

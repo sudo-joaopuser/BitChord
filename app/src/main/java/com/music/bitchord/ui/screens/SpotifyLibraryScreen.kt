@@ -219,7 +219,7 @@ fun SpotifyLibraryScreen(
         scope.launch {
             runCatching { catalog.search(query, limit = 20, market = profileCountry) }
                 .onSuccess { searchResults = it }
-                .onFailure { searchError = it.message }
+                .onFailure { searchError = formatSpotifyError(it) }
             searching = false
             searched = true
         }
@@ -466,7 +466,7 @@ fun SpotifyLibraryScreen(
                                 scope.launch {
                                     runCatching { catalog.playlistTracks(item.id) }
                                         .onSuccess { expandedTracks = it }
-                                        .onFailure { error = it.message }
+                                        .onFailure { error = formatSpotifyError(it) }
                                 }
                             }
                         },

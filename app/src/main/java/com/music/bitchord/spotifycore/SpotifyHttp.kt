@@ -6,6 +6,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** Small HTTP helper for the official Spotify APIs. No other client needed. */
@@ -15,13 +17,21 @@ internal object SpotifyHttp {
             URLEncoder.encode(k, "UTF-8") + "=" + URLEncoder.encode(v, "UTF-8")
         }
 
-    fun request(
+    // Blocking HttpURLConnection must never run on the caller's thread:
+    // the library/search screens call the catalog from LaunchedEffect and
+    // rememberCoroutineScope (Main), and Android throws
+    // NetworkOnMainThreadException there — an exception with a null
+    // message, which the old error formatting rendered as a generic
+    // "Falha ao falar com o Spotify" and the old library code rendered
+    // as an empty page (error = it.message = null). Every Spotify call
+    // goes through here, so switching to IO here fixes every call site.
+    suspend fun request(
         method: String,
         url: String,
         token: String? = null,
         body: String? = null,
         contentType: String? = null,
-    ): Pair<Int, String> {
+    ): Pair<Int, String> = withContext(Dispatchers.IO) {
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
             // No timeout used to mean a hung call never became an error:
@@ -44,23 +54,23 @@ internal object SpotifyHttp {
             }.orEmpty()
             if (code == 403) throw SpotifyPremiumRequiredException()
             if (code !in 200..299) throw SpotifyApiException(code, text.take(500))
-            return code to text
+            code to text
         } finally {
             conn.disconnect()
         }
     }
 
-    fun apiGet(token: String, path: String): JSONObject {
+    suspend fun apiGet(token: String, path: String): JSONObject {
         val (_, text) = request("GET", "https://api.spotify.com/v1$path", token)
         return JSONObject(text)
     }
 
-    fun api(token: String, method: String, path: String, body: String? = null): String {
+    suspend fun api(token: String, method: String, path: String, body: String? = null): String {
         val (_, text) = request(method, "https://api.spotify.com/v1$path", token, body)
         return text
     }
 
-    fun tokenRequest(body: String): JSONObject {
+    suspend fun tokenRequest(body: String): JSONObject {
         val (_, text) = request(
             "POST", "https://accounts.spotify.com/api/token",
             body = body, contentType = "application/x-www-form-urlencoded",
