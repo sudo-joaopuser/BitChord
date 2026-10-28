@@ -1,5 +1,11 @@
 # BitChord só com Spotify — fork
 
+> ATUALIZAÇÃO 2026-10-28: o plano de núcleo Rust/librespot abaixo está
+> SUPERADO pelo Core limpo em `SPOTIFY_CORE_CLEAN.md`. A pedido do Joao,
+> o fork usa só API oficial do Spotify (Web API + App Remote), sem
+> protocolo não oficial, sem cookie, sem raspagem e sem download de
+> áudio. O que segue abaixo fica como registro do caminho descartado.
+
 Base: `kushagrasinghx/BitChord` em `04a4a83`, branch local `spotify-only`.
 Objetivo: um app só com Spotify, só para conta Premium, sem adblock e sem
 nenhum truque de YouTube. Não é um tema por cima do BitChord: é trocar a
