@@ -113,15 +113,17 @@ interface SpotifyCatalog {
     suspend fun profile(): String
     suspend fun profileInfo(): SpotifyProfile
     suspend fun playlists(limit: Int = 50): List<SpotifyPlaylist>
+    suspend fun playlistsTotal(): Int
     suspend fun playlistTracks(playlistId: String): List<SpotifyTrack>
     suspend fun likedTracks(): List<SpotifyTrack>
+    suspend fun likedTotal(): Int
     suspend fun topTracks(limit: Int = 50): List<SpotifyTrack>
-    suspend fun search(query: String, limit: Int = 10): List<SpotifyTrack>
+    suspend fun search(query: String, limit: Int = 10, market: String? = null): List<SpotifyTrack>
     suspend fun albumTracks(albumId: String): List<SpotifyTrack>
     suspend fun artistTopTracks(artistId: String): List<SpotifyTrack>
 }
 
-data class SpotifyProfile(val name: String, val id: String)
+data class SpotifyProfile(val name: String, val id: String, val country: String? = null)
 
 /** Web API Player: controls an active Connect device. Premium only. */
 interface SpotifyPlayer {

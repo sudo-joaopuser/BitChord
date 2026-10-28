@@ -48,6 +48,7 @@ class SpotifyAuthImpl(private val store: TokenStore) : SpotifyAuth {
             "redirect_uri" to redirectUri,
             "code_challenge_method" to "S256",
             "code_challenge" to challenge,
+            "show_dialog" to "true",
             "scope" to SPOTIFY_SCOPES.joinToString(" "),
         )
         val query = params.entries.joinToString("&") { (k, v) ->

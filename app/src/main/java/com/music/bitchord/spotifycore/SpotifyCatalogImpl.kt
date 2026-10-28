@@ -14,13 +14,36 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
         val json = get("/me")
         val name = json.optString("display_name").takeIf { it.isNotBlank() }
             ?: json.optString("id")
-        return SpotifyProfile(name = name, id = json.optString("id"))
+        return SpotifyProfile(
+            name = name,
+            id = json.optString("id"),
+            country = json.optString("country").takeIf { it.isNotBlank() },
+        )
+    }
+
+    // Follows the paged `next` links the way spotify-dart's Pages does:
+    // a first page is never the whole library, and `total` is what the
+    // API itself reports, not what we managed to parse.
+    private suspend fun pagedItems(firstPath: String): List<JSONObject> {
+        val out = mutableListOf<JSONObject>()
+        var next: String? = firstPath
+        var pages = 0
+        while (next != null && pages < 5) {
+            val path = next.removePrefix("https://api.spotify.com/v1")
+            if (path == next && next.startsWith("http")) break
+            val json = get(path)
+            val items = json.optJSONArray("items") ?: break
+            for (i in 0 until items.length()) {
+                items.optJSONObject(i)?.let { out.add(it) }
+            }
+            next = json.optString("next").takeIf { it.isNotBlank() }
+            pages++
+        }
+        return out
     }
 
     override suspend fun playlists(limit: Int): List<SpotifyPlaylist> {
-        val items = get("/me/playlists?limit=$limit").optJSONArray("items") ?: return emptyList()
-        return (0 until items.length()).mapNotNull { i ->
-            val o = items.optJSONObject(i) ?: return@mapNotNull null
+        return pagedItems("/me/playlists?limit=$limit").mapNotNull { o ->
             SpotifyPlaylist(
                 id = o.optString("id"),
                 uri = o.optString("uri"),
@@ -32,6 +55,12 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
         }
     }
 
+    override suspend fun playlistsTotal(): Int =
+        get("/me/playlists?limit=1").optInt("total", -1)
+
+    override suspend fun likedTotal(): Int =
+        get("/me/tracks?limit=1").optInt("total", -1)
+
     override suspend fun playlistTracks(playlistId: String): List<SpotifyTrack> {
         val items = get("/playlists/$playlistId/items?limit=100").optJSONArray("items")
             ?: return emptyList()
@@ -39,7 +68,8 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
     }
 
     override suspend fun likedTracks(): List<SpotifyTrack> {
-        val items = get("/me/tracks?limit=50").optJSONArray("items") ?: return emptyList()
+        val items = JSONArray()
+        pagedItems("/me/tracks?limit=50").forEach { items.put(it) }
         return items.toTracks()
     }
 
@@ -49,9 +79,13 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
         return items.toTracks()
     }
 
-    override suspend fun search(query: String, limit: Int): List<SpotifyTrack> {
+    override suspend fun search(query: String, limit: Int, market: String?): List<SpotifyTrack> {
         val q = URLEncoder.encode(query, "UTF-8")
-        val tracks = get("/search?q=$q&type=track&limit=$limit")
+        // spotify-dart's Search.get passes an optional market; without one
+        // the API answers for no market at all, so send the account's
+        // country (from /me) when we know it, like Spotube's market setting.
+        val marketParam = market?.takeIf { it.isNotBlank() }?.let { "&market=$it" }.orEmpty()
+        val tracks = get("/search?q=$q&type=track&limit=$limit$marketParam")
             .optJSONObject("tracks")?.optJSONArray("items") ?: return emptyList()
         return (0 until tracks.length()).mapNotNull { i ->
             tracks.optJSONObject(i)?.let { trackFrom(it) }

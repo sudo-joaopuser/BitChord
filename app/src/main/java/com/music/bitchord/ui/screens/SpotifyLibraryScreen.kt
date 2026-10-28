@@ -66,6 +66,9 @@ fun SpotifyLibraryScreen(
     var topTracks by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
     var profileName by remember { mutableStateOf<String?>(null) }
     var profileId by remember { mutableStateOf<String?>(null) }
+    var profileCountry by remember { mutableStateOf<String?>(null) }
+    var playlistTotal by remember { mutableStateOf(-1) }
+    var likedTotal by remember { mutableStateOf(-1) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var catalogMissing by remember { mutableStateOf(false) }
@@ -88,6 +91,9 @@ fun SpotifyLibraryScreen(
             topTracks = emptyList()
             profileName = null
             profileId = null
+            profileCountry = null
+            playlistTotal = -1
+            likedTotal = -1
             error = null
             catalogMissing = false
             return@LaunchedEffect
@@ -110,6 +116,7 @@ fun SpotifyLibraryScreen(
             val info = catalog.profileInfo()
             profileName = info.name
             profileId = info.id
+            profileCountry = info.country
             playlists = catalog.playlists()
             liked = catalog.likedTracks()
             // Fallback content: a library with no playlists and no Liked
@@ -120,6 +127,16 @@ fun SpotifyLibraryScreen(
                 emptyList()
             }
         }.onFailure { error = it.message }
+        // Totals straight from the API, fetched separately so a totals
+        // failure never hides the lists: total > 0 with 0 items means
+        // parsing broke, total = 0 means the account really is empty.
+        runCatching {
+            playlistTotal = catalog.playlistsTotal()
+            likedTotal = catalog.likedTotal()
+        }.onFailure {
+            playlistTotal = -1
+            likedTotal = -1
+        }
         loading = false
     }
 
@@ -157,13 +174,22 @@ fun SpotifyLibraryScreen(
     }
 
     fun search() {
-        val catalog = SpotifyCoreSession.catalog ?: return
+        // The old version returned silently with no catalog and no error:
+        // a tap that visibly does nothing. Rebuild from saved tokens
+        // first, and say so if there is nothing to rebuild from.
+        val catalog = SpotifyCoreSession.catalog
+            ?: if (SpotifyCoreSession.restore(context)) SpotifyCoreSession.catalog else null
+        if (catalog == null) {
+            searchError = context.getString(R.string.spotify_catalog_missing)
+            searched = true
+            return
+        }
         val query = searchQuery.trim()
         if (query.isBlank()) return
         searching = true
         searchError = null
         scope.launch {
-            runCatching { catalog.search(query, limit = 20) }
+            runCatching { catalog.search(query, limit = 20, market = profileCountry) }
                 .onSuccess { searchResults = it }
                 .onFailure { searchError = it.message }
             searching = false
@@ -237,12 +263,22 @@ fun SpotifyLibraryScreen(
             }
             if (!loading && !catalogMissing) {
                 item {
+                    // Same counts line as before, extended with the raw
+                    // API totals and a missing-profile-id flag: this is the
+                    // diagnostic that separates parsing bugs from an empty
+                    // or wrong account, with no new UI element.
+                    val totals = if (playlistTotal >= 0 && likedTotal >= 0) {
+                        " · API total: $playlistTotal/$likedTotal"
+                    } else {
+                        ""
+                    }
+                    val noId = if (profileId.isNullOrBlank()) " · sem id de perfil" else ""
                     Text(
                         text = stringResource(
                             R.string.spotify_library_counts,
                             playlists.size,
                             liked.size,
-                        ),
+                        ) + totals + noId,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
