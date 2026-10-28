@@ -1276,7 +1276,7 @@
     <string name="recent_ep">EP récent</string>
     <string name="recent_single">Single récent</string>
     <string name="spotify">Spotify</string>
-    <string name="spotify_connect_subtitle">Connectez-vous pour charger vos playlists. La lecture utilise YouTube Music.</string>
+    <string name="spotify_connect_subtitle">Connectez-vous pour charger vos playlists.</string>
     <string name="spotify_disconnect">Déconnecter</string>
     <string name="spotify_empty_playlists">Aucune playlist sur ce compte</string>
     <string name="spotify_empty_tracks">Cette playlist ne contient aucun titre</string>

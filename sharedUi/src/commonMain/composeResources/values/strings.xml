@@ -143,7 +143,7 @@
     <string name="downloaded">Downloaded</string>
     <string name="explore">Explore</string>
     <string name="library">Library</string>
-    <string name="library_sign_in_description">Sign in to your Google account to see your liked songs, playlists, and YouTube Music history.</string>
+    <string name="library_sign_in_description">Sign in to your Spotify account to see your liked songs and playlists.</string>
     <string name="new_playlist">New playlist</string>
     <string name="on_device">On Device</string>
     <string name="personalized_recommendations">Get personalized recommendations for you</string>
@@ -207,4 +207,6 @@
     <string name="import_spotify">Import Spotify</string>
     <string name="import_spotify_subtitle">From a playlist link</string>
     <string name="sign_in_with_google">Sign in with Google</string>
+    <string name="sign_in_spotify">Sign in to Spotify</string>
+    <string name="sign_in_with_spotify">Sign in with Spotify</string>
 </resources>

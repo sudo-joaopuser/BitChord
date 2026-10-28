@@ -40,6 +40,8 @@ import kotlin.math.roundToInt
 @Composable
 fun AccountAndScrobblingScreen(
     signedIn: Boolean,
+    spotifyConnected: Boolean = false,
+    onSpotifySignOut: () -> Unit = {},
     account: Account?,
     channelName: String?,
     onSignIn: () -> Unit,
@@ -67,7 +69,7 @@ fun AccountAndScrobblingScreen(
     val discordToken by AppSettings.discordToken.collectAsStateWithLifecycle()
     val discordUsername by AppSettings.discordUsername.collectAsStateWithLifecycle()
     val discordRpcEnabled by AppSettings.discordRpcEnabled.collectAsStateWithLifecycle()
-    val spotifyConnected by AppSettings.spotifySpdcToken.collectAsStateWithLifecycle()
+    val spotifySpdcToken by AppSettings.spotifySpdcToken.collectAsStateWithLifecycle()
 
     Column(
         modifier = modifier
@@ -116,11 +118,17 @@ fun AccountAndScrobblingScreen(
                 iconPainter = painterResource(Res.drawable.spotify_logo),
                 title = stringResource(R.string.spotify),
                 subtitle = stringResource(
-                    if (spotifyConnected.isNotBlank()) R.string.connected else R.string.tap_to_connect,
+                    if (spotifyConnected) R.string.connected else R.string.tap_to_connect,
                 ),
-                onClick = onOpenSpotify,
+                onClick = if (spotifyConnected) onOpenSpotify else onSignIn,
             )
-            if (spotifyConnected.isNotBlank()) {
+            if (spotifyConnected) {
+                FullWidthDivider()
+                DestructiveRow(
+                    label = stringResource(R.string.spotify_disconnect),
+                    onClick = onSpotifySignOut,
+                )
+            } else if (spotifySpdcToken.isNotBlank()) {
                 FullWidthDivider()
                 DestructiveRow(
                     label = stringResource(R.string.spotify_disconnect),

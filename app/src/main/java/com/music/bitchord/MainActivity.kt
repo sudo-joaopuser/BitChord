@@ -2801,6 +2801,7 @@ private fun BitChordApp(
                             )
                         } else if (pageRoute == AppRoute.Spotify) {
                             SpotifyLibraryScreen(
+                                connected = spotifyConnected,
                                 onOpenLogin = { showSpotifyCoreLogin = true },
                                 contentPadding = listPadding,
                             )
@@ -2816,6 +2817,15 @@ private fun BitChordApp(
                         } else if (pageRoute == AppRoute.AccountScrobbling) {
                             AccountAndScrobblingScreen(
                                 signedIn = signedIn,
+                                spotifyConnected = spotifyConnected,
+                                onSpotifySignOut = {
+                                    SharedPrefsTokenStore(context).clear()
+                                    SpotifyCoreSession.auth = null
+                                    SpotifyCoreSession.catalog = null
+                                    SpotifyCoreSession.player = null
+                                    SpotifyCoreSession.appRemotePlayer = null
+                                    spotifyConnected = false
+                                },
                                 account = account,
                                 channelName = selectedChannelName,
                                 onSignIn = { showSpotifyCoreLogin = true },
@@ -3107,8 +3117,8 @@ private fun BitChordApp(
                                 currentSong = player.song,
                                 isPlaying = player.isPlaying,
                                 title = stringResource(R.string.listen_now),
-                                signedIn = signedIn,
-                                onSignIn = { webSession = WebSessionMode.SIGN_IN },
+                                signedIn = spotifyConnected,
+                                onSignIn = { showSpotifyCoreLogin = true },
                                 onItemClick = { item, shelfTitle ->
                                     val song = shelfSong(item)
                                     // Hoisted because ShelfItem lives in :shared, and
@@ -3356,7 +3366,7 @@ private fun BitChordApp(
                                 },
                             )
                             else -> LibraryScreen(
-                                signedIn = signedIn,
+                                signedIn = spotifyConnected,
                                 state = libraryState,
                                 listState = libraryListState,
                                 onShelfItemClick = onLibraryItemClick,
@@ -3380,7 +3390,7 @@ private fun BitChordApp(
                                         },
                                     )
                                 },
-                                onSignIn = { webSession = WebSessionMode.SIGN_IN },
+                                onSignIn = { showSpotifyCoreLogin = true },
                                 onRetry = viewModel::loadLibrary,
                                 refreshing = MainViewModel.Feed.LIBRARY in refreshing,
                                 onRefresh = { viewModel.refresh(MainViewModel.Feed.LIBRARY) },

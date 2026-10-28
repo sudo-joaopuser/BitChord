@@ -838,7 +838,7 @@ fun SignInBanner(onSignIn: () -> Unit, modifier: Modifier = Modifier) {
         )
         Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 18.dp)) {
             Text(
-                text = stringResource(Res.string.sign_in_youtube_music),
+                text = stringResource(Res.string.sign_in_spotify),
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.W800,
                 color = Color.White,
@@ -851,14 +851,15 @@ fun SignInBanner(onSignIn: () -> Unit, modifier: Modifier = Modifier) {
                     .padding(start = 16.dp, end = 20.dp, top = 10.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Image(
-                    painter = painterResource(Res.drawable.ic_google_g),
+                Icon(
+                    painter = painterResource(Res.drawable.spotify_logo),
                     contentDescription = null,
+                    tint = Color.Black,
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = stringResource(Res.string.sign_in_with_google),
+                    text = stringResource(Res.string.sign_in_with_spotify),
                     style = MaterialTheme.typography.titleMedium,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.W700,

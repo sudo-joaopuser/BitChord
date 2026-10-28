@@ -1252,7 +1252,7 @@
     <string name="recent_ep">最近的 EP</string>
     <string name="recent_single">最近的單曲</string>
     <string name="spotify">Spotify</string>
-    <string name="spotify_connect_subtitle">登入以載入你的播放列表。播放使用 YouTube Music。</string>
+    <string name="spotify_connect_subtitle">登入以載入你的播放列表。</string>
     <string name="spotify_disconnect">斷開連線</string>
     <string name="spotify_empty_playlists">此賬號沒有播放列表</string>
     <string name="spotify_empty_tracks">此播放列表沒有歌曲</string>

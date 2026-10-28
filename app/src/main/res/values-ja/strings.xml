@@ -1253,7 +1253,7 @@
     <string name="recent_ep">最近の EP</string>
     <string name="recent_single">最近のシングル</string>
     <string name="spotify">Spotify</string>
-    <string name="spotify_connect_subtitle">サインインしてプレイリストを読み込みます。再生は YouTube Music を使います。</string>
+    <string name="spotify_connect_subtitle">サインインしてプレイリストを読み込みます。</string>
     <string name="spotify_disconnect">切断</string>
     <string name="spotify_empty_playlists">このアカウントにはプレイリストがありません</string>
     <string name="spotify_empty_tracks">このプレイリストには曲がありません</string>

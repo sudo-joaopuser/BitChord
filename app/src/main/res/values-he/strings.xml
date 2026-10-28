@@ -1280,7 +1280,7 @@
     <string name="recent_ep">EP אחרון</string>
     <string name="recent_single">סינגל אחרון</string>
     <string name="spotify">Spotify</string>
-    <string name="spotify_connect_subtitle">התחברו כדי לטעון את הפלייליסטים שלכם. ההשמעה משתמשת ב-YouTube Music.</string>
+    <string name="spotify_connect_subtitle">התחברו כדי לטעון את הפלייליסטים שלכם.</string>
     <string name="spotify_disconnect">התנתקות</string>
     <string name="spotify_empty_playlists">אין פלייליסטים בחשבון זה</string>
     <string name="spotify_empty_tracks">לפלייליסט זה אין שירים</string>

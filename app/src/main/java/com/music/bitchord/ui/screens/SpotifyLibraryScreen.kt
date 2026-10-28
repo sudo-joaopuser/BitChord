@@ -53,24 +53,27 @@ import org.jetbrains.compose.resources.painterResource
  */
 @Composable
 fun SpotifyLibraryScreen(
+    connected: Boolean = SpotifyCoreSession.isConnected,
     onOpenLogin: () -> Unit,
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
 ) {
-    val connected = SpotifyCoreSession.isConnected
     var playlists by remember { mutableStateOf<List<SpotifyPlaylist>>(emptyList()) }
     var liked by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
+    var profileName by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var loadAttempt by remember { mutableStateOf(0) }
     var expandedPlaylistId by remember { mutableStateOf<String?>(null) }
     var expandedTracks by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
     var playError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(connected) {
+    LaunchedEffect(connected, loadAttempt) {
         if (!connected) {
             playlists = emptyList()
             liked = emptyList()
+            profileName = null
             error = null
             return@LaunchedEffect
         }
@@ -78,6 +81,7 @@ fun SpotifyLibraryScreen(
         loading = true
         error = null
         runCatching {
+            profileName = catalog.profile()
             playlists = catalog.playlists()
             liked = catalog.likedTracks()
         }.onFailure { error = it.message }
@@ -135,6 +139,16 @@ fun SpotifyLibraryScreen(
                 }
             }
         } else {
+            profileName?.let { name ->
+                item {
+                    Text(
+                        text = stringResource(R.string.spotify_connected_as, name),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                }
+            }
             if (loading) {
                 item {
                     Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -144,11 +158,16 @@ fun SpotifyLibraryScreen(
             }
             error?.let { message ->
                 item {
-                    Text(
-                        text = message,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                    )
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                        Text(
+                            text = message,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { loadAttempt++ }) {
+                            Text(stringResource(R.string.try_again))
+                        }
+                    }
                 }
             }
             playError?.let { message ->
@@ -221,12 +240,17 @@ fun SpotifyLibraryScreen(
             }
             if (!loading && error == null && playlists.isEmpty() && liked.isEmpty()) {
                 item {
-                    Text(
-                        text = stringResource(R.string.spotify_connect_subtitle),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                    )
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                        Text(
+                            text = stringResource(R.string.spotify_library_empty),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { loadAttempt++ }) {
+                            Text(stringResource(R.string.try_again))
+                        }
+                    }
                 }
             }
         }

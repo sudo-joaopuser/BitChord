@@ -1275,7 +1275,7 @@
     <string name="recent_ep">Neue EP</string>
     <string name="recent_single">Neue Single</string>
     <string name="spotify">Spotify</string>
-    <string name="spotify_connect_subtitle">Melde dich an, um deine Playlists zu laden. Die Wiedergabe nutzt YouTube Music.</string>
+    <string name="spotify_connect_subtitle">Melde dich an, um deine Playlists zu laden.</string>
     <string name="spotify_disconnect">Trennen</string>
     <string name="spotify_empty_playlists">Keine Playlists auf diesem Konto</string>
     <string name="spotify_empty_tracks">Diese Playlist enthält keine Titel</string>

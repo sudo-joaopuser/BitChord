@@ -120,6 +120,8 @@
     <string name="account_integrations">Account &amp; integrations</string>
     <string name="spotify">Spotify</string>
     <string name="spotify_connect_subtitle">Sign in to load your playlists and liked songs.</string>
+    <string name="spotify_connected_as">Connected as %1$s</string>
+    <string name="spotify_library_empty">No playlists or liked songs found on this account.</string>
     <string name="spotify_sign_in">Sign in with Spotify</string>
     <string name="spotify_use_spdc_token">Use sp_dc token</string>
     <string name="spotify_disconnect">Disconnect</string>

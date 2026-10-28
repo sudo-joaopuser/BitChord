@@ -1192,7 +1192,7 @@
     <string name="recent_ep">EP gần đây</string>
     <string name="recent_single">Đơn gần đây</string>
     <string name="spotify">Spotify</string>
-    <string name="spotify_connect_subtitle">Đăng nhập để tải danh sách phát của bạn. Phát nhạc dùng YouTube Music.</string>
+    <string name="spotify_connect_subtitle">Đăng nhập để tải danh sách phát của bạn.</string>
     <string name="spotify_disconnect">Ngắt kết nối</string>
     <string name="spotify_empty_playlists">Không có danh sách phát nào trên tài khoản này</string>
     <string name="spotify_empty_tracks">Danh sách phát này không có bài hát</string>
