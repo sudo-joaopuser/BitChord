@@ -74,19 +74,32 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
     // Follows the paged `next` links the way spotify-dart's Pages does:
     // a first page is never the whole library, and `total` is what the
     // API itself reports, not what we managed to parse.
+    // Never follow the `next` URL Spotify returns: since the February
+    // 2026 API changes, /me/playlists pagination hands back a `next`
+    // pointing at GET /users/{id}/playlists, an endpoint Spotify
+    // removed — following it returns 410 Gone with an empty message,
+    // which used to abort the whole library load even though the
+    // profile and the first page had succeeded. Paginate by offset
+    // on the same /me/... path instead, stopping at `total` or on a
+    // short page.
     private suspend fun pagedItems(firstPath: String): List<JSONObject> {
         val out = mutableListOf<JSONObject>()
-        var next: String? = firstPath
+        val limit = Regex("[?&]limit=(\\d+)").find(firstPath)?.groupValues?.get(1)?.toIntOrNull()
+            ?: 50
+        var offset = 0
+        var total = Int.MAX_VALUE
         var pages = 0
-        while (next != null && pages < 5) {
-            val path = next.removePrefix("https://api.spotify.com/v1")
-            if (path == next && next.startsWith("http")) break
+        while (out.size < total && pages < 5) {
+            val separator = if (firstPath.contains("?")) "&" else "?"
+            val path = if (offset == 0) firstPath else "$firstPath${separator}offset=$offset"
             val json = get(path)
             val items = json.optJSONArray("items") ?: break
             for (i in 0 until items.length()) {
                 items.optJSONObject(i)?.let { out.add(it) }
             }
-            next = json.optString("next").takeIf { it.isNotBlank() }
+            total = json.optInt("total", out.size)
+            if (items.length() < limit) break
+            offset += items.length()
             pages++
         }
         return out

@@ -1493,7 +1493,7 @@ private fun BitChordApp(
                 val message = if (failure is SpotifyApiException && failure.status == 404) {
                     context.getString(R.string.spotify_no_active_device)
                 } else {
-                    failure.message ?: context.getString(R.string.couldnt_load_tracks)
+                    formatSpotifyError(failure)
                 }
                 Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
             }
