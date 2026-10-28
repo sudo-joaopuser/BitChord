@@ -125,6 +125,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.music.bitchord.auth.DiscordLoginScreen
 import com.music.bitchord.auth.SpotifyLoginLink
 import com.music.bitchord.spotifycore.SharedPrefsTokenStore
+import com.music.bitchord.spotifycore.SpotifyApiException
 import com.music.bitchord.spotifycore.SpotifyAuthImpl
 import com.music.bitchord.spotifycore.SpotifyCatalogImpl
 import com.music.bitchord.spotifycore.SpotifyConnectPlayer
@@ -584,6 +585,30 @@ private fun BitChordApp(
     LaunchedEffect(Unit) {
         SpotifyCoreSession.restore(context)
         spotifyConnected = SpotifyCoreSession.isConnected
+    }
+    // Home Spotify section: top tracks from the account, loaded when the
+    // clean-core session is connected. These do not depend on the user's
+    // saved library, so the Home tab has music even when the YouTube
+    // feeds are empty and playlists come back 0/0.
+    var homeSpotifySongs by remember { mutableStateOf<List<Song>>(emptyList()) }
+    LaunchedEffect(spotifyConnected) {
+        if (!spotifyConnected) {
+            homeSpotifySongs = emptyList()
+            return@LaunchedEffect
+        }
+        val catalog = SpotifyCoreSession.catalog
+            ?: if (SpotifyCoreSession.restore(context)) SpotifyCoreSession.catalog else null
+        homeSpotifySongs = runCatching { catalog?.topTracks(20) ?: emptyList() }
+            .getOrDefault(emptyList())
+            .map { track ->
+                Song(
+                    videoId = track.uri,
+                    title = track.title,
+                    artist = track.artists.joinToString(", "),
+                    thumbnailUrl = track.imageUrl,
+                    albumName = track.album,
+                )
+            }
     }
     // Spotify OAuth return: the code the browser brought back is exchanged
     // here, against the Client ID / verifier saved when the login screen
@@ -1402,6 +1427,46 @@ private fun BitChordApp(
         }
     }
 
+    /**
+     * A Spotify URI has no stream URL for the old player: handing it to
+     * the Media3 queue would resolve to nothing and play in silence.
+     * Route it to Connect instead (active device, else first available,
+     * else a toast telling the user to start something in the official
+     * app). Returns true when the song was a Spotify track and the
+     * caller must not queue it anywhere else.
+     */
+    fun playSpotifyUri(uri: String): Boolean {
+        if (!uri.startsWith("spotify:track:")) return false
+        val player = SpotifyCoreSession.player
+        if (player == null) {
+            Toast.makeText(context, R.string.spotify_sign_in, Toast.LENGTH_SHORT).show()
+            return true
+        }
+        scope.launch {
+            runCatching {
+                val devices = player.devices()
+                val active = devices.firstOrNull { it.isActive && it.id != null }
+                val first = devices.firstOrNull { it.id != null }
+                when {
+                    active != null -> player.play(listOf(uri), active.id)
+                    first != null -> {
+                        player.transfer(first.id!!)
+                        player.play(listOf(uri), first.id)
+                    }
+                    else -> player.play(listOf(uri))
+                }
+            }.onFailure { failure ->
+                val message = if (failure is SpotifyApiException && failure.status == 404) {
+                    context.getString(R.string.spotify_no_active_device)
+                } else {
+                    failure.message ?: context.getString(R.string.couldnt_load_tracks)
+                }
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }
+        }
+        return true
+    }
+
     fun playFrom(
         allSongs: List<Song>,
         allIndex: Int,
@@ -1409,6 +1474,8 @@ private fun BitChordApp(
         boundedContext: Boolean = false,
         continuationToken: String? = null,
     ) {
+        // Spotify tracks never go through the old queue: see playSpotifyUri.
+        if (playSpotifyUri(allSongs.getOrNull(allIndex)?.videoId.orEmpty())) return
         // A Spotify page lists songs it has not found on YouTube Music yet (or
         // never will); those can't be queued, so play the rest in their order.
         if (allSongs.getOrNull(allIndex)?.isUnresolvedSpotify == true) return
@@ -1538,6 +1605,10 @@ private fun BitChordApp(
         playRequestGeneration++
         activeRadioSeed = null
         scope.launch {
+            // Spotify search hits and Home Spotify rows carry a Spotify
+            // URI, not a streamable id: route them to Connect, never to
+            // the old queue. See playSpotifyUri.
+            if (playSpotifyUri(song.videoId)) return@launch
             if (refusedByHost()) return@launch
             val c = controller ?: return@launch
             val currentTimeline = player.queue.takeIf { it.size == c.mediaItemCount }
@@ -1563,6 +1634,9 @@ private fun BitChordApp(
      * replaced in one Media3 operation.
      */
     val startRadio: (Song) -> Unit = { song ->
+        // A Spotify track has no YouTube station to start: play it via
+        // Connect instead of failing on the RDAMVM queue. See playSpotifyUri.
+        if (!playSpotifyUri(song.videoId)) {
         val originalController = controller
         if (originalController != null && !refusedByHost()) {
             val request = ++playRequestGeneration
@@ -1636,6 +1710,7 @@ private fun BitChordApp(
                     Toast.LENGTH_SHORT,
                 ).show()
             }
+        }
         }
     }
     val addToQueue: (Song) -> Unit = { song ->
@@ -3113,6 +3188,13 @@ private fun BitChordApp(
                                 title = stringResource(R.string.listen_now),
                                 signedIn = spotifyConnected,
                                 onSignIn = { showSpotifyCoreLogin = true },
+                                spotifySongs = homeSpotifySongs,
+                                onSpotifyItemClick = { song ->
+                                    playRadio(
+                                        song,
+                                        QueueSource("Spotify", PlaybackSourceType.HOME),
+                                    )
+                                },
                                 onItemClick = { item, shelfTitle ->
                                     val song = shelfSong(item)
                                     // Hoisted because ShelfItem lives in :shared, and

@@ -4,14 +4,16 @@ import java.net.URLEncoder
 import org.json.JSONArray
 import org.json.JSONObject
 
-class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
-    private suspend fun get(path: String): JSONObject =
-        SpotifyHttp.apiGet(tokens.accessToken(), path)
-
-    override suspend fun profile(): String = profileInfo().name
-
-    override suspend fun profileInfo(): SpotifyProfile {
-        val json = get("/me")
+/**
+ * Pure parsing for Spotify Web API responses, kept separate from the
+ * network calls so it can be tested against real response shapes
+ * without a token: playlists (items+total+next), saved tracks
+ * (items[].track), search (tracks.items), top tracks (items directly)
+ * and the /me profile. No item is dropped except a null/missing
+ * track object or a track without an id.
+ */
+internal object SpotifyParsing {
+    fun profileFrom(json: JSONObject): SpotifyProfile {
         val name = json.optString("display_name").takeIf { it.isNotBlank() }
             ?: json.optString("id")
         return SpotifyProfile(
@@ -20,6 +22,54 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
             country = json.optString("country").takeIf { it.isNotBlank() },
         )
     }
+
+    fun playlistFrom(o: JSONObject): SpotifyPlaylist = SpotifyPlaylist(
+        id = o.optString("id"),
+        uri = o.optString("uri"),
+        name = o.optString("name"),
+        owner = o.optJSONObject("owner")?.optString("display_name"),
+        imageUrl = firstImage(o.optJSONArray("images")),
+        totalTracks = o.optJSONObject("tracks")?.optInt("total", 0) ?: 0,
+    )
+
+    fun tracksFrom(items: JSONArray): List<SpotifyTrack> =
+        (0 until items.length()).mapNotNull { i ->
+            val item = items.optJSONObject(i) ?: return@mapNotNull null
+            val track = item.optJSONObject("track") ?: item
+            if (track.optString("id").isBlank()) null else trackFrom(track)
+        }
+
+    fun trackFrom(o: JSONObject): SpotifyTrack {
+        val artists = o.optJSONArray("artists")
+        val names = (0 until (artists?.length() ?: 0)).mapNotNull { i ->
+            artists?.optJSONObject(i)?.optString("name")
+        }
+        val album = o.optJSONObject("album")
+        return SpotifyTrack(
+            id = o.optString("id"),
+            uri = o.optString("uri"),
+            title = o.optString("name"),
+            artists = names,
+            album = album?.optString("name"),
+            durationMs = o.optLong("duration_ms", 0L),
+            imageUrl = firstImage(album?.optJSONArray("images")),
+        )
+    }
+
+    fun firstImage(images: JSONArray?): String? =
+        if (images != null && images.length() > 0) {
+            images.optJSONObject(0)?.optString("url")?.takeIf { it.isNotBlank() }
+        } else null
+}
+
+class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
+    private suspend fun get(path: String): JSONObject =
+        SpotifyHttp.apiGet(tokens.accessToken(), path)
+
+    override suspend fun profile(): String = profileInfo().name
+
+    override suspend fun profileInfo(): SpotifyProfile =
+        SpotifyParsing.profileFrom(get("/me"))
 
     // Follows the paged `next` links the way spotify-dart's Pages does:
     // a first page is never the whole library, and `total` is what the
@@ -43,15 +93,8 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
     }
 
     override suspend fun playlists(limit: Int): List<SpotifyPlaylist> {
-        return pagedItems("/me/playlists?limit=$limit").mapNotNull { o ->
-            SpotifyPlaylist(
-                id = o.optString("id"),
-                uri = o.optString("uri"),
-                name = o.optString("name"),
-                owner = o.optJSONObject("owner")?.optString("display_name"),
-                imageUrl = firstImage(o.optJSONArray("images")),
-                totalTracks = o.optJSONObject("tracks")?.optInt("total", 0) ?: 0,
-            )
+        return pagedItems("/me/playlists?limit=$limit").map { o ->
+            SpotifyParsing.playlistFrom(o)
         }
     }
 
@@ -64,19 +107,19 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
     override suspend fun playlistTracks(playlistId: String): List<SpotifyTrack> {
         val items = get("/playlists/$playlistId/items?limit=100").optJSONArray("items")
             ?: return emptyList()
-        return items.toTracks()
+        return SpotifyParsing.tracksFrom(items)
     }
 
     override suspend fun likedTracks(): List<SpotifyTrack> {
         val items = JSONArray()
         pagedItems("/me/tracks?limit=50").forEach { items.put(it) }
-        return items.toTracks()
+        return SpotifyParsing.tracksFrom(items)
     }
 
     override suspend fun topTracks(limit: Int): List<SpotifyTrack> {
         val items = get("/me/top/tracks?limit=$limit&time_range=medium_term")
             .optJSONArray("items") ?: return emptyList()
-        return items.toTracks()
+        return SpotifyParsing.tracksFrom(items)
     }
 
     override suspend fun search(query: String, limit: Int, market: String?): List<SpotifyTrack> {
@@ -88,7 +131,7 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
         val tracks = get("/search?q=$q&type=track&limit=$limit$marketParam")
             .optJSONObject("tracks")?.optJSONArray("items") ?: return emptyList()
         return (0 until tracks.length()).mapNotNull { i ->
-            tracks.optJSONObject(i)?.let { trackFrom(it) }
+            tracks.optJSONObject(i)?.let { SpotifyParsing.trackFrom(it) }
         }
     }
 
@@ -96,7 +139,7 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
         val items = get("/albums/$albumId/tracks?limit=100").optJSONArray("items")
             ?: return emptyList()
         return (0 until items.length()).mapNotNull { i ->
-            items.optJSONObject(i)?.let { trackFrom(it) }
+            items.optJSONObject(i)?.let { SpotifyParsing.trackFrom(it) }
         }
     }
 
@@ -104,38 +147,9 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
         val tracks = get("/artists/$artistId/top-tracks?market=BR").optJSONArray("tracks")
             ?: return emptyList()
         return (0 until tracks.length()).mapNotNull { i ->
-            tracks.optJSONObject(i)?.let { trackFrom(it) }
+            tracks.optJSONObject(i)?.let { SpotifyParsing.trackFrom(it) }
         }
     }
-
-    private fun JSONArray.toTracks(): List<SpotifyTrack> =
-        (0 until length()).mapNotNull { i ->
-            val item = optJSONObject(i) ?: return@mapNotNull null
-            val track = item.optJSONObject("track") ?: item
-            if (track.optString("id").isBlank()) null else trackFrom(track)
-        }
-
-    private fun trackFrom(o: JSONObject): SpotifyTrack {
-        val artists = o.optJSONArray("artists")
-        val names = (0 until (artists?.length() ?: 0)).mapNotNull { i ->
-            artists?.optJSONObject(i)?.optString("name")
-        }
-        val album = o.optJSONObject("album")
-        return SpotifyTrack(
-            id = o.optString("id"),
-            uri = o.optString("uri"),
-            title = o.optString("name"),
-            artists = names,
-            album = album?.optString("name"),
-            durationMs = o.optLong("duration_ms", 0L),
-            imageUrl = firstImage(album?.optJSONArray("images")),
-        )
-    }
-
-    private fun firstImage(images: JSONArray?): String? =
-        if (images != null && images.length() > 0) {
-            images.optJSONObject(0)?.optString("url")?.takeIf { it.isNotBlank() }
-        } else null
 }
 
 class SpotifyConnectPlayer(private val tokens: TokenSource) : SpotifyPlayer {

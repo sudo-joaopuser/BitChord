@@ -208,5 +208,6 @@
     <string name="import_spotify_subtitle">From a playlist link</string>
     <string name="sign_in_with_google">Sign in with Google</string>
     <string name="sign_in_spotify">Sign in to Spotify</string>
+    <string name="spotify_top_tracks">Top tracks on Spotify</string>
     <string name="sign_in_with_spotify">Sign in with Spotify</string>
 </resources>

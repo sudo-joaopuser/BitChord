@@ -201,5 +201,6 @@
     <string name="search_library_hint">Músicas, artistas e álbuns</string>
     <string name="search_library_no_results">Nada na Música local corresponde a “%1$s”.</string>
     <string name="sign_in_spotify">Entrar no Spotify</string>
+    <string name="spotify_top_tracks">Mais ouvidas no Spotify</string>
     <string name="sign_in_with_spotify">Entrar com Spotify</string>
 </resources>

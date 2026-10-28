@@ -123,6 +123,13 @@ fun HomeScreen(
     title: String?,
     signedIn: Boolean = true,
     onSignIn: (() -> Unit)? = null,
+    /** Spotify top tracks for the Home tab, loaded by the caller from the
+     * clean-core catalog when connected. The Home feed itself is still
+     * YouTube-shaped and empty after the YouTube removal, so this section
+     * is what puts music on the Home tab at all; tapping a row plays it
+     * via Connect through the caller's onSpotifyItemClick. */
+    spotifySongs: List<Song> = emptyList(),
+    onSpotifyItemClick: ((Song) -> Unit)? = null,
     /**
      * Holding a card rather than tapping it. Every card on the feed answers,
      * whichever kind it is: the caller reads the item the same way it does for
@@ -171,6 +178,51 @@ fun HomeScreen(
             if (!signedIn && onSignIn != null) {
                 item {
                     SignInBanner(onSignIn = onSignIn, modifier = Modifier.padding(bottom = 8.dp))
+                }
+            }
+            if (spotifySongs.isNotEmpty() && onSpotifyItemClick != null) {
+                item {
+                    Text(
+                        text = stringResource(Res.string.spotify_top_tracks),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
+                    )
+                }
+                items(spotifySongs, key = { it.videoId }) { song ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSpotifyItemClick(song) }
+                            .padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        AsyncImage(
+                            model = song.thumbnailUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(52.dp).clip(RoundedCornerShape(8.dp)),
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = song.title,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (song.artist.isNotBlank()) {
+                                Text(
+                                    text = song.artist,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
                 }
             }
             when (state) {
