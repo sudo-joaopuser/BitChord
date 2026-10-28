@@ -1,5 +1,23 @@
 # Spotify Core limpo — só API oficial, nada que viole
 
+> DECISÃO 2026-10-28 (Joao delegou a escolha): o melhor caminho é
+> **App Remote como playback primário no celular + Connect como
+> fallback para outros dispositivos**, com Web API para biblioteca e
+> catálogo. App Remote acorda o app oficial, dá qualidade cheia,
+> estado em tempo real e checagem de Premium via capabilities; Connect
+> cobre desktop e caixas. Librespot foi descartado de vez por violar
+> termos e quebrar sem aviso. Implementado no commit `9eea38a`:
+> `SpotifyAuthImpl` (PKCE), `SpotifyCatalogImpl` (Web API),
+> `SpotifyConnectPlayer` (Player Connect) e `SpotifyLoginFlow`.
+> O adaptador App Remote em si entra depois, atrás da interface
+> `SpotifyAppRemotePlayer`, quando o AAR estiver em `app/libs/`.
+>
+> TELA DE LOGIN: pede o Client ID do Spotify Developer antes de
+> qualquer coisa — campo de texto, validação de 32 caracteres, e o
+> redirect URI (`bitchord-spotify://callback` por padrão) exibido para
+> copiar e registrar no dashboard. Sem Client ID digitado, não abre o
+> login do Spotify. Nada hardcoded.
+
 Este documento substitui o plano anterior de núcleo Rust/librespot.
 Motivo: o usuário pediu um Core limpo, sem nada que viole algo. Stream
 direto do servidor por protocolo não oficial (librespot/psst) viola os
