@@ -73,9 +73,39 @@ object SpotifyPkce {
     }
 }
 
-interface SpotifyAuth {
-    suspend fun login(clientId: String, redirectUri: String): SpotifyTokens
+class SpotifyApiException(val status: Int, message: String) : Exception(message)
+class SpotifyPremiumRequiredException : Exception("Spotify Premium required")
+
+/** Minimal scopes for the clean core. Request only these, nothing broader. */
+val SPOTIFY_SCOPES = listOf(
+    "user-read-private",
+    "user-library-read",
+    "playlist-read-private",
+    "playlist-read-collaborative",
+    "user-read-playback-state",
+    "user-modify-playback-state",
+    "user-read-currently-playing",
+    "user-read-recently-played",
+    "user-top-read",
+    "app-remote-control",
+    "streaming",
+)
+
+fun interface TokenSource {
+    suspend fun accessToken(): String
+}
+
+/**
+ * Authorization Code with PKCE, step by step, so the login screen can
+ * ask for the Developer Client ID first and only then open Spotify:
+ * authorizeUrl -> user approves in browser -> exchangeCode -> tokens.
+ * No client secret lives in the app.
+ */
+interface SpotifyAuth : TokenSource {
+    fun authorizeUrl(clientId: String, redirectUri: String, verifier: String): String
+    suspend fun exchangeCode(code: String, clientId: String, redirectUri: String, verifier: String): SpotifyTokens
     suspend fun refresh(tokens: SpotifyTokens, clientId: String): SpotifyTokens
+    suspend fun ensureValid(clientId: String): SpotifyTokens?
     suspend fun logout()
 }
 
