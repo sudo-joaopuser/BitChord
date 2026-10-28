@@ -123,7 +123,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.music.bitchord.auth.DiscordLoginScreen
+import com.music.bitchord.auth.SpotifyLoginLink
 import com.music.bitchord.auth.SpotifyLoginScreen
+import com.music.bitchord.spotifycore.SharedPrefsTokenStore
+import com.music.bitchord.spotifycore.SpotifyAuthImpl
+import com.music.bitchord.spotifycore.SpotifyCatalogImpl
+import com.music.bitchord.spotifycore.SpotifyConnectPlayer
+import com.music.bitchord.spotifycore.SpotifyCoreSession
+import com.music.bitchord.spotifycore.SpotifyLoginFlow
 import com.music.bitchord.auth.WebSessionMode
 import com.music.bitchord.auth.YtMusicLoginScreen
 import com.music.bitchord.data.AppUpdateChecker
@@ -178,6 +185,7 @@ import com.music.bitchord.ui.screens.SourceEditorAlert
 import com.music.bitchord.ui.screens.SourcesScreen
 import com.music.bitchord.data.sources.TrackMatcher
 import com.music.bitchord.ui.screens.SpotifyCanvasAuthScreen
+import com.music.bitchord.ui.screens.SpotifyCoreLoginScreen
 import com.music.bitchord.ui.screens.SpotifyLibraryScreen
 import com.music.bitchord.data.spotify.SPOTIFY_PAGE_PREFIX
 import com.music.bitchord.playback.AudioCache
@@ -362,6 +370,7 @@ class MainActivity : AppCompatActivity() {
         // Before the composition, so a cold launch from a widget's artwork has
         // the request already standing by the time BitChordApp first reads it.
         PlayerDeepLink.consume(intent)
+        SpotifyLoginLink.consume(intent)
         JamInviteLink.consume(intent)
         // Likewise for a link tapped or shared from another app — see [MusicLink].
         MusicLink.consume(intent)
@@ -458,6 +467,7 @@ class MainActivity : AppCompatActivity() {
         // one that just arrived and not the one the task was started with.
         setIntent(intent)
         PlayerDeepLink.consume(intent)
+        SpotifyLoginLink.consume(intent)
         JamInviteLink.consume(intent)
         MusicLink.consume(intent)
     }
@@ -551,6 +561,41 @@ private fun BitChordApp(
             PlayerDeepLink.handled()
         }
     }
+    // Spotify OAuth return: the code the browser brought back is exchanged
+    // here, against the Client ID / verifier saved when the login screen
+    // opened the browser. On success the clean core session is set and
+    // Sources + library read from it; on failure the login screen reopens
+    // with the error, so the user can retry in the app.
+    val spotifyLoginCode by SpotifyLoginLink.pendingCode.collectAsStateWithLifecycle()
+    LaunchedEffect(spotifyLoginCode) {
+        val code = spotifyLoginCode ?: return@LaunchedEffect
+        val pending = context.getSharedPreferences("spotify_login_pending", Context.MODE_PRIVATE)
+        val clientId = pending.getString("client_id", null)
+        val redirectUri = pending.getString("redirect_uri", null)
+        val verifier = pending.getString("verifier", null)
+        if (clientId == null || redirectUri == null || verifier == null) {
+            SpotifyLoginLink.handled()
+            return@LaunchedEffect
+        }
+        val result = runCatching {
+            withContext(Dispatchers.IO) {
+                val auth = SpotifyAuthImpl(SharedPrefsTokenStore(context))
+                auth.exchangeCode(code, clientId, redirectUri, verifier)
+                SpotifyCoreSession.auth = auth
+                SpotifyCoreSession.catalog = SpotifyCatalogImpl(auth)
+                SpotifyCoreSession.player = SpotifyConnectPlayer(auth)
+            }
+        }
+        pending.edit().clear().apply()
+        SpotifyLoginLink.handled()
+        if (result.isSuccess) {
+            spotifyLoginError = null
+            showSpotifyCoreLogin = false
+        } else {
+            spotifyLoginError = result.exceptionOrNull()?.message ?: "Falha no login com Spotify"
+            showSpotifyCoreLogin = true
+        }
+    }
     /**
      * What the in-app browser is open for, or null while it is closed —
      * signing in, or picking a channel in YouTube Music's own Accounts list.
@@ -602,6 +647,8 @@ private fun BitChordApp(
     // after it.
     var showDiscordLogin by remember { mutableStateOf(false) }
     var showSpotifyLogin by remember { mutableStateOf(false) }
+    var showSpotifyCoreLogin by remember { mutableStateOf(false) }
+    var spotifyLoginError by remember { mutableStateOf<String?>(null) }
     var discordDialog by remember { mutableStateOf<DiscordDialog?>(null) }
     var songActions by remember { mutableStateOf<Song?>(null) }
     var showLyricsOffset by remember { mutableStateOf(false) }
@@ -2785,6 +2832,7 @@ private fun BitChordApp(
                                 onEditWebDav = { showWebDavEditor = true },
                                 onEditSmb = { showSmbEditor = true },
                                 onConfirmJioSaavn = { confirmJioSaavn = true },
+                                onOpenSpotifyLogin = { showSpotifyCoreLogin = true },
                             )
                         } else if (pageRoute == AppRoute.WearOs) {
                             WearOsScreen(contentPadding = listPadding)
@@ -5229,6 +5277,31 @@ private fun BitChordApp(
                         },
                     )
                 }
+            }
+        }
+
+        // ---- Spotify clean-core sign-in (asks for the Client ID in-app) ----
+        // Replaces the old WebView login for the clean core: the screen asks
+        // for the Developer Client ID, the activity stores the PKCE verifier
+        // and opens Spotify in the browser, and the return is exchanged by
+        // the LaunchedEffect on SpotifyLoginLink.pendingCode above.
+        if (showSpotifyCoreLogin) {
+            BackHandler { showSpotifyCoreLogin = false }
+            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                SpotifyCoreLoginScreen(
+                    onNavigateUp = { showSpotifyCoreLogin = false },
+                    onConnect = { clientId, redirectUri, verifier ->
+                        context.getSharedPreferences("spotify_login_pending", Context.MODE_PRIVATE)
+                            .edit()
+                            .putString("client_id", clientId)
+                            .putString("redirect_uri", redirectUri)
+                            .putString("verifier", verifier)
+                            .apply()
+                        val url = SpotifyLoginFlow.authorizeUrl(clientId, redirectUri, verifier)
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    },
+                    initialError = spotifyLoginError,
+                )
             }
         }
 

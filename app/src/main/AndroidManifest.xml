@@ -133,6 +133,18 @@
             </intent-filter>
 
             <!--
+              Spotify OAuth return for the clean core: the login screen
+              opens Spotify with this redirect URI, and Spotify returns
+              here with ?code=... . Handled by SpotifyLoginLink.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="bitchord-spotify" />
+            </intent-filter>
+
+            <!--
               The pre-Lollipop spelling of the same request. Deprecated, and
               still what some OEM shortcuts and headset "open music" buttons
               fire, so it costs one filter to be reachable from them too.

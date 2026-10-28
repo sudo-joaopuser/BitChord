@@ -29,8 +29,25 @@ object SpotifyLoginFlow {
     fun isValidClientId(clientId: String): Boolean =
         clientIdPattern.matches(clientId.trim())
 
+    /** Pure URL builder, so the screen needs no auth object just to open Spotify. */
+    fun authorizeUrl(clientId: String, redirectUri: String, verifier: String): String {
+        val challenge = SpotifyPkce.codeChallenge(verifier)
+        val params = mapOf(
+            "client_id" to clientId,
+            "response_type" to "code",
+            "redirect_uri" to redirectUri,
+            "code_challenge_method" to "S256",
+            "code_challenge" to challenge,
+            "scope" to SPOTIFY_SCOPES.joinToString(" "),
+        )
+        val query = params.entries.joinToString("&") { (k, v) ->
+            java.net.URLEncoder.encode(k, "UTF-8") + "=" + java.net.URLEncoder.encode(v, "UTF-8")
+        }
+        return "https://accounts.spotify.com/authorize?$query"
+    }
+
     /** Step 1: validate the typed Client ID, build the Spotify URL to open. */
-    fun startLogin(state: SpotifyLoginState, auth: SpotifyAuth): SpotifyLoginState {
+    fun startLogin(state: SpotifyLoginState): SpotifyLoginState {
         val clientId = state.clientId.trim()
         if (!isValidClientId(clientId)) {
             return state.copy(
@@ -41,7 +58,7 @@ object SpotifyLoginFlow {
         return state.copy(
             clientId = clientId,
             verifier = verifier,
-            authorizeUrl = auth.authorizeUrl(clientId, state.redirectUri, verifier),
+            authorizeUrl = authorizeUrl(clientId, state.redirectUri, verifier),
             error = null,
         )
     }

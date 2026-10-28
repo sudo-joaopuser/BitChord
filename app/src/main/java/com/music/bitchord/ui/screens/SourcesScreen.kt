@@ -120,6 +120,8 @@ fun SourcesScreen(
     onEditSmb: () -> Unit,
     /** Opens the full-window warning before JioSaavn is opted into. */
     onConfirmJioSaavn: () -> Unit,
+    /** Opens the Spotify login that asks for the Developer Client ID. */
+    onOpenSpotifyLogin: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -247,7 +249,13 @@ fun SourcesScreen(
                         // Anything the user configured is theirs to edit or
                         // delete. JioSaavn and YouTube have no address to
                         // change, so a tap on them would open an empty editor.
-                        onClick = if (config.kind.needsServer) ({ onEditSource(config) }) else null,
+                        // Spotify is the exception: a tap opens its login,
+                        // which asks for the Developer Client ID in the app.
+                        onClick = when {
+                            config.kind == SourceKind.SPOTIFY && onOpenSpotifyLogin != null -> ({ onOpenSpotifyLogin() })
+                            config.kind.needsServer -> ({ onEditSource(config) })
+                            else -> null
+                        },
                         // YouTube gets no switch at all — see
                         // [SourceRegistry.setEnabled] for why one would be a lie.
                         onToggle = if (config.kind == SourceKind.YOUTUBE) {
@@ -795,6 +803,7 @@ private fun SourceRow(
                 SourceKind.MODULE -> Icons.Rounded.Extension
                 SourceKind.JIOSAAVN -> Icons.Rounded.GraphicEq // or some other icon
                 SourceKind.YOUTUBE -> Icons.Rounded.PlayCircle
+                SourceKind.SPOTIFY -> Icons.Rounded.MusicNote
             },
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onBackground,

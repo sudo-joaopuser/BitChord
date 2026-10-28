@@ -138,6 +138,23 @@ enum class SourceKind(
     ),
 
     /**
+     * Spotify, clean core only: Web API + App Remote / Connect, Premium.
+     * Rank -1 so it sits before every other source in the trial order and
+     * is not classed as user-added: it is seeded like YouTube was, not
+     * typed in as an addon address. It has no stream URL — see
+     * [SpotifySource] — so its row in Sources opens the Spotify login,
+     * not a server editor.
+     */
+    SPOTIFY(
+        label = "Spotify",
+        detail = "Conta Premium via API oficial do Spotify. O áudio toca no app oficial (App Remote) ou num dispositivo Connect.",
+        labels = listOf("Premium", "Oficial"),
+        needsServer = false,
+        canServeLossless = false,
+        rank = -1,
+    ),
+
+    /**
      * The source the app was built on, listed here so it always has a fixed
      * place: second, behind the module source. It cannot be removed — see
      * [SourceRegistry]. Nothing else in the app can supply a home feed, a

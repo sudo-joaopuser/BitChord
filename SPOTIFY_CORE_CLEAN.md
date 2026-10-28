@@ -126,3 +126,16 @@ ali importa SDK do Spotify, librespot ou cookie. A implementação com
 o AAR do App Remote entra depois, atrás da interface, quando o AAR
 estiver em `app/libs/` — e sem ele o app compila, só não conecta o
 playback do App Remote.
+
+## Login direto no app + Spotify como Source
+
+A pedido do Joao, nada é pedido no chat: a tela
+`ui/screens/SpotifyCoreLoginScreen.kt` pede o Client ID dentro do
+app, mostra o redirect URI para registrar no dashboard, abre o
+Spotify no navegador e volta por `bitchord-spotify://callback`
+(intent-filter no Manifest, `auth/SpotifyLoginLink.kt`, troca de
+código em `MainActivity`). Spotify também virou `SourceKind.SPOTIFY`
+(seedado no `SourceRegistry`, ícone na tela Sources, toque abre o
+login) via `data/sources/SpotifySource.kt` — busca lista do Web API,
+stream retorna null de propósito, porque playback limpo não tem URL:
+vai pelo App Remote/Connect.
