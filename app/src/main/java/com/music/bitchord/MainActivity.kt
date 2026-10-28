@@ -130,6 +130,7 @@ import com.music.bitchord.spotifycore.SpotifyAuthImpl
 import com.music.bitchord.spotifycore.SpotifyCatalogImpl
 import com.music.bitchord.spotifycore.SpotifyConnectPlayer
 import com.music.bitchord.spotifycore.SpotifyCoreSession
+import com.music.bitchord.spotifycore.formatSpotifyError
 import com.music.bitchord.spotifycore.SpotifyLoginFlow
 import com.music.bitchord.auth.WebSessionMode
 import com.music.bitchord.data.AppUpdateChecker
@@ -582,9 +583,31 @@ private fun BitChordApp(
     // Restore the clean-core session from saved tokens on launch, so a
     // sign-in survives closing and reopening the app. Access tokens are
     // refreshed on demand by SpotifyAuthImpl when a call needs one.
+    // A stored token alone is NOT "connected": the session is only
+    // marked connected after GET /me answers, otherwise a dead token
+    // used to leave the library page empty with no error at all.
     LaunchedEffect(Unit) {
         SpotifyCoreSession.restore(context)
-        spotifyConnected = SpotifyCoreSession.isConnected
+        spotifyConnected = if (SpotifyCoreSession.isConnected) {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { SpotifyCoreSession.catalog?.profileInfo() }
+            }
+            val info = result.getOrNull()
+            if (info != null && info.id.isNotBlank()) {
+                true
+            } else {
+                // Broken saved session: clear it and show the real error
+                // on the existing login screen instead of leaving the
+                // app "connected" with an empty library.
+                SpotifyCoreSession.clear(context)
+                spotifyLoginError = result.exceptionOrNull()?.let { formatSpotifyError(it) }
+                    ?: "Sessão Spotify expirada ou inválida — entre de novo"
+                showSpotifyCoreLogin = true
+                false
+            }
+        } else {
+            false
+        }
     }
     // Home Spotify section: top tracks from the account, loaded when the
     // clean-core session is connected. These do not depend on the user's
@@ -633,6 +656,14 @@ private fun BitChordApp(
                 SpotifyCoreSession.auth = auth
                 SpotifyCoreSession.catalog = SpotifyCatalogImpl(auth)
                 SpotifyCoreSession.player = SpotifyConnectPlayer(auth)
+                // Prove the session before calling it connected: a token
+                // that GET /me rejects must not land the user on an
+                // empty library page that looks "connected".
+                val profile = SpotifyCoreSession.catalog?.profileInfo()
+                    ?: throw SpotifyApiException(0, "Sessão Spotify sem catálogo")
+                if (profile.id.isBlank()) {
+                    throw SpotifyApiException(0, "Resposta de perfil inválida (sem id)")
+                }
             }
         }
         pending.edit().clear().apply()
@@ -643,7 +674,10 @@ private fun BitChordApp(
             spotifyConnected = true
             navigateToSpotifyAfterLogin = true
         } else {
-            spotifyLoginError = result.exceptionOrNull()?.message ?: "Falha no login com Spotify"
+            SpotifyCoreSession.clear(context)
+            spotifyConnected = false
+            spotifyLoginError = result.exceptionOrNull()?.let { formatSpotifyError(it) }
+                ?: "Falha no login com Spotify"
             showSpotifyCoreLogin = true
         }
     }

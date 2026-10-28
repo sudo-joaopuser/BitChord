@@ -43,6 +43,7 @@ import com.music.bitchord.sharedui.resources.Res
 import com.music.bitchord.sharedui.resources.spotify_logo
 import com.music.bitchord.spotifycore.SpotifyApiException
 import com.music.bitchord.spotifycore.SpotifyCoreSession
+import com.music.bitchord.spotifycore.formatSpotifyError
 import com.music.bitchord.spotifycore.SpotifyPlaylist
 import com.music.bitchord.spotifycore.SpotifyTrack
 import kotlinx.coroutines.launch
@@ -67,6 +68,7 @@ fun SpotifyLibraryScreen(
     var profileName by remember { mutableStateOf<String?>(null) }
     var profileId by remember { mutableStateOf<String?>(null) }
     var profileCountry by remember { mutableStateOf<String?>(null) }
+    var profileLoaded by remember { mutableStateOf(false) }
     var playlistTotal by remember { mutableStateOf(-1) }
     var likedTotal by remember { mutableStateOf(-1) }
     var loading by remember { mutableStateOf(false) }
@@ -92,6 +94,7 @@ fun SpotifyLibraryScreen(
             profileName = null
             profileId = null
             profileCountry = null
+            profileLoaded = false
             playlistTotal = -1
             likedTotal = -1
             error = null
@@ -112,11 +115,34 @@ fun SpotifyLibraryScreen(
         catalogMissing = false
         loading = true
         error = null
+        profileLoaded = false
+        // Step 1: the profile must succeed first, on its own. A profile
+        // failure used to be indistinguishable from an empty library:
+        // with no timeout, a hung GET /me left the page on its initial
+        // state (counts 0/0, no profile id, no error, no spinner), and
+        // the empty-library message rendered as if the account were
+        // simply empty. Now a profile failure is a real error with
+        // retry, and the empty message below is gated on profileLoaded.
+        val info = runCatching { catalog.profileInfo() }
+            .onFailure { error = formatSpotifyError(it) }
+            .getOrNull()
+        if (info == null || info.id.isBlank()) {
+            if (error == null) error = "Resposta de perfil inválida (sem id)"
+            playlists = emptyList()
+            liked = emptyList()
+            topTracks = emptyList()
+            profileName = null
+            profileId = null
+            profileCountry = null
+            loading = false
+            return@LaunchedEffect
+        }
+        profileName = info.name
+        profileId = info.id
+        profileCountry = info.country
+        profileLoaded = true
+        // Step 2: lists, only with a proven profile.
         runCatching {
-            val info = catalog.profileInfo()
-            profileName = info.name
-            profileId = info.id
-            profileCountry = info.country
             playlists = catalog.playlists()
             liked = catalog.likedTracks()
             // Fallback content: a library with no playlists and no Liked
@@ -126,16 +152,18 @@ fun SpotifyLibraryScreen(
             } else {
                 emptyList()
             }
-        }.onFailure { error = it.message }
+        }.onFailure { error = formatSpotifyError(it) }
         // Totals straight from the API, fetched separately so a totals
         // failure never hides the lists: total > 0 with 0 items means
         // parsing broke, total = 0 means the account really is empty.
-        runCatching {
-            playlistTotal = catalog.playlistsTotal()
-            likedTotal = catalog.likedTotal()
-        }.onFailure {
-            playlistTotal = -1
-            likedTotal = -1
+        if (error == null) {
+            runCatching {
+                playlistTotal = catalog.playlistsTotal()
+                likedTotal = catalog.likedTotal()
+            }.onFailure {
+                playlistTotal = -1
+                likedTotal = -1
+            }
         }
         loading = false
     }
@@ -455,7 +483,7 @@ fun SpotifyLibraryScreen(
                     }
                 }
             }
-            if (!loading && error == null && !catalogMissing && playlists.isEmpty() && liked.isEmpty() && topTracks.isEmpty()) {
+            if (!loading && error == null && profileLoaded && !catalogMissing && playlists.isEmpty() && liked.isEmpty() && topTracks.isEmpty()) {
                 item {
                     Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
                         Text(

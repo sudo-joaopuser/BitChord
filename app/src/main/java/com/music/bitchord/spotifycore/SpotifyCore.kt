@@ -76,6 +76,19 @@ object SpotifyPkce {
 class SpotifyApiException(val status: Int, message: String) : Exception(message)
 class SpotifyPremiumRequiredException : Exception("Spotify Premium required")
 
+/** Turns a Spotify/network failure into the message the UI shows: the
+ * API status when there is one, so a 401/403/429 is never rendered as
+ * a silent empty library, and a timeout says so instead of hanging. */
+fun formatSpotifyError(e: Throwable): String = when (e) {
+    is SpotifyApiException ->
+        if (e.status > 0) "Spotify (${e.status}): ${e.message}".trim()
+        else e.message?.takeIf { it.isNotBlank() } ?: "Falha no Spotify"
+    is SpotifyPremiumRequiredException -> "Spotify Premium necessário"
+    is java.net.SocketTimeoutException ->
+        "Tempo esgotado ao falar com o Spotify (timeout) — verifique a conexão e tente de novo"
+    else -> e.message?.takeIf { it.isNotBlank() } ?: "Falha ao falar com o Spotify"
+}
+
 /** Minimal scopes for the clean core. Request only these, nothing broader. */
 val SPOTIFY_SCOPES = listOf(
     "user-read-private",

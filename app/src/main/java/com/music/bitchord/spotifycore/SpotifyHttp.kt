@@ -24,6 +24,11 @@ internal object SpotifyHttp {
     ): Pair<Int, String> {
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
+            // No timeout used to mean a hung call never became an error:
+            // the library page sat on its initial empty state forever,
+            // with no profile, no error and no spinner to explain it.
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 30_000
             conn.requestMethod = method
             conn.setRequestProperty("Accept", "application/json")
             if (token != null) conn.setRequestProperty("Authorization", "Bearer $token")
