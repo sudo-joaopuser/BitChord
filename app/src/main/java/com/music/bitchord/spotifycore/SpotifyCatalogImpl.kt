@@ -8,10 +8,13 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
     private suspend fun get(path: String): JSONObject =
         SpotifyHttp.apiGet(tokens.accessToken(), path)
 
-    override suspend fun profile(): String {
+    override suspend fun profile(): String = profileInfo().name
+
+    override suspend fun profileInfo(): SpotifyProfile {
         val json = get("/me")
-        return json.optString("display_name").takeIf { it.isNotBlank() }
+        val name = json.optString("display_name").takeIf { it.isNotBlank() }
             ?: json.optString("id")
+        return SpotifyProfile(name = name, id = json.optString("id"))
     }
 
     override suspend fun playlists(limit: Int): List<SpotifyPlaylist> {
@@ -37,6 +40,12 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
 
     override suspend fun likedTracks(): List<SpotifyTrack> {
         val items = get("/me/tracks?limit=50").optJSONArray("items") ?: return emptyList()
+        return items.toTracks()
+    }
+
+    override suspend fun topTracks(limit: Int): List<SpotifyTrack> {
+        val items = get("/me/top/tracks?limit=$limit&time_range=medium_term")
+            .optJSONArray("items") ?: return emptyList()
         return items.toTracks()
     }
 

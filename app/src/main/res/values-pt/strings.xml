@@ -1283,6 +1283,13 @@
     <string name="spotify_connect_subtitle">Entre para carregar suas playlists.</string>
     <string name="spotify_connected_as">Conectado como %1$s</string>
     <string name="spotify_library_empty">Nenhuma playlist ou música curtida encontrada nesta conta.</string>
+    <string name="spotify_catalog_missing">A sessão do Spotify está sem catálogo. Toque em tentar novamente para reconstruí-la a partir do login salvo.</string>
+    <string name="spotify_library_counts">Playlists: %1$d · Curtidas: %2$d</string>
+    <string name="spotify_top_tracks">Mais ouvidas</string>
+    <string name="spotify_search_hint">Buscar no Spotify</string>
+    <string name="spotify_search_button">Buscar</string>
+    <string name="spotify_search_empty">Nenhum resultado para esta busca.</string>
+    <string name="spotify_no_active_device">Nenhum dispositivo Spotify ativo. Abra o app oficial do Spotify, toque algo uma vez e tente de novo.</string>
     <string name="spotify_disconnect">Desconectar</string>
     <string name="spotify_empty_playlists">Nenhuma playlist nesta conta</string>
     <string name="spotify_empty_tracks">Esta playlist não tem músicas</string>

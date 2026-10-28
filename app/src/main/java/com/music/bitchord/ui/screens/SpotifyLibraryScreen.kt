@@ -20,6 +20,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -39,6 +41,7 @@ import coil3.compose.AsyncImage
 import com.music.bitchord.R
 import com.music.bitchord.sharedui.resources.Res
 import com.music.bitchord.sharedui.resources.spotify_logo
+import com.music.bitchord.spotifycore.SpotifyApiException
 import com.music.bitchord.spotifycore.SpotifyCoreSession
 import com.music.bitchord.spotifycore.SpotifyPlaylist
 import com.music.bitchord.spotifycore.SpotifyTrack
@@ -60,30 +63,62 @@ fun SpotifyLibraryScreen(
 ) {
     var playlists by remember { mutableStateOf<List<SpotifyPlaylist>>(emptyList()) }
     var liked by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
+    var topTracks by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
     var profileName by remember { mutableStateOf<String?>(null) }
+    var profileId by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var catalogMissing by remember { mutableStateOf(false) }
     var loadAttempt by remember { mutableStateOf(0) }
     var expandedPlaylistId by remember { mutableStateOf<String?>(null) }
     var expandedTracks by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
     var playError by remember { mutableStateOf<String?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+    var searchError by remember { mutableStateOf<String?>(null) }
+    var searched by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(connected, loadAttempt) {
         if (!connected) {
             playlists = emptyList()
             liked = emptyList()
+            topTracks = emptyList()
             profileName = null
+            profileId = null
             error = null
+            catalogMissing = false
             return@LaunchedEffect
         }
-        val catalog = SpotifyCoreSession.catalog ?: return@LaunchedEffect
+        // A connected flag with no catalog used to end in a silent empty
+        // page: this early return never set loading, profile or error.
+        // Rebuild the catalog from saved tokens first, and say so if
+        // there is nothing to rebuild from.
+        val catalog = SpotifyCoreSession.catalog
+            ?: if (SpotifyCoreSession.restore(context)) SpotifyCoreSession.catalog else null
+        if (catalog == null) {
+            catalogMissing = true
+            loading = false
+            return@LaunchedEffect
+        }
+        catalogMissing = false
         loading = true
         error = null
         runCatching {
-            profileName = catalog.profile()
+            val info = catalog.profileInfo()
+            profileName = info.name
+            profileId = info.id
             playlists = catalog.playlists()
             liked = catalog.likedTracks()
+            // Fallback content: a library with no playlists and no Liked
+            // Songs still has top tracks to show and play.
+            topTracks = if (playlists.isEmpty() && liked.isEmpty()) {
+                catalog.topTracks()
+            } else {
+                emptyList()
+            }
         }.onFailure { error = it.message }
         loading = false
     }
@@ -95,9 +130,44 @@ fun SpotifyLibraryScreen(
             return
         }
         scope.launch {
-            runCatching { player.play(listOf(track.uri)) }
-                .onSuccess { playError = null }
-                .onFailure { playError = it.message ?: "Could not start playback" }
+            runCatching {
+                // Connect needs a device: prefer the active one, else move
+                // playback to the first available device, else let the
+                // API error surface as guidance instead of silence.
+                val devices = player.devices()
+                val active = devices.firstOrNull { it.isActive && it.id != null }
+                val first = devices.firstOrNull { it.id != null }
+                when {
+                    active != null -> player.play(listOf(track.uri), active.id)
+                    first != null -> {
+                        player.transfer(first.id!!)
+                        player.play(listOf(track.uri), first.id)
+                    }
+                    else -> player.play(listOf(track.uri))
+                }
+            }.onSuccess { playError = null }
+                .onFailure { failure ->
+                    playError = if (failure is SpotifyApiException && failure.status == 404) {
+                        "NO_ACTIVE_DEVICE"
+                    } else {
+                        failure.message ?: "Could not start playback"
+                    }
+                }
+        }
+    }
+
+    fun search() {
+        val catalog = SpotifyCoreSession.catalog ?: return
+        val query = searchQuery.trim()
+        if (query.isBlank()) return
+        searching = true
+        searchError = null
+        scope.launch {
+            runCatching { catalog.search(query, limit = 20) }
+                .onSuccess { searchResults = it }
+                .onFailure { searchError = it.message }
+            searching = false
+            searched = true
         }
     }
 
@@ -139,13 +209,102 @@ fun SpotifyLibraryScreen(
                 }
             }
         } else {
+            if (catalogMissing) {
+                item {
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                        Text(
+                            text = stringResource(R.string.spotify_catalog_missing),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { loadAttempt++ }) {
+                            Text(stringResource(R.string.try_again))
+                        }
+                    }
+                }
+            }
             profileName?.let { name ->
                 item {
+                    val idSuffix = profileId?.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
                     Text(
-                        text = stringResource(R.string.spotify_connected_as, name),
+                        text = stringResource(R.string.spotify_connected_as, name) + idSuffix,
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                }
+            }
+            if (!loading && !catalogMissing) {
+                item {
+                    Text(
+                        text = stringResource(
+                            R.string.spotify_library_counts,
+                            playlists.size,
+                            liked.size,
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                    )
+                }
+            }
+            item {
+                Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        label = { Text(stringResource(R.string.spotify_search_hint)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = { search() }, enabled = !searching) {
+                        Text(stringResource(R.string.spotify_search_button))
+                    }
+                }
+            }
+            if (searching) {
+                item {
+                    Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+            }
+            searchError?.let { message ->
+                item {
+                    Text(
+                        text = message,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                }
+            }
+            if (searched && !searching && searchError == null && searchResults.isEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.spotify_search_empty),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                }
+            }
+            if (searchResults.isNotEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.spotify_search_button),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 4.dp),
+                    )
+                }
+                items(searchResults, key = { it.id }) { track ->
+                    LibraryRow(
+                        title = track.title,
+                        subtitle = track.artists.joinToString(", "),
+                        imageUrl = track.imageUrl,
+                        onClick = { play(track) },
                     )
                 }
             }
@@ -173,9 +332,31 @@ fun SpotifyLibraryScreen(
             playError?.let { message ->
                 item {
                     Text(
-                        text = message,
+                        text = if (message == "NO_ACTIVE_DEVICE") {
+                            stringResource(R.string.spotify_no_active_device)
+                        } else {
+                            message
+                        },
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                }
+            }
+            if (topTracks.isNotEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.spotify_top_tracks),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 4.dp),
+                    )
+                }
+                items(topTracks, key = { it.id }) { track ->
+                    LibraryRow(
+                        title = track.title,
+                        subtitle = track.artists.joinToString(", "),
+                        imageUrl = track.imageUrl,
+                        onClick = { play(track) },
                     )
                 }
             }
@@ -238,7 +419,7 @@ fun SpotifyLibraryScreen(
                     }
                 }
             }
-            if (!loading && error == null && playlists.isEmpty() && liked.isEmpty()) {
+            if (!loading && error == null && !catalogMissing && playlists.isEmpty() && liked.isEmpty() && topTracks.isEmpty()) {
                 item {
                     Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
                         Text(

@@ -122,6 +122,13 @@
     <string name="spotify_connect_subtitle">Sign in to load your playlists and liked songs.</string>
     <string name="spotify_connected_as">Connected as %1$s</string>
     <string name="spotify_library_empty">No playlists or liked songs found on this account.</string>
+    <string name="spotify_catalog_missing">Spotify session has no catalog. Tap retry to rebuild it from the saved sign-in.</string>
+    <string name="spotify_library_counts">Playlists: %1$d · Liked: %2$d</string>
+    <string name="spotify_top_tracks">Top tracks</string>
+    <string name="spotify_search_hint">Search Spotify</string>
+    <string name="spotify_search_button">Search</string>
+    <string name="spotify_search_empty">No results for this search.</string>
+    <string name="spotify_no_active_device">No active Spotify device. Open the official Spotify app, play something once, then try again.</string>
     <string name="spotify_sign_in">Sign in with Spotify</string>
     <string name="spotify_use_spdc_token">Use sp_dc token</string>
     <string name="spotify_disconnect">Disconnect</string>

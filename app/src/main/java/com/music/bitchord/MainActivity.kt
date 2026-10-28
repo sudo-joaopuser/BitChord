@@ -582,14 +582,8 @@ private fun BitChordApp(
     // sign-in survives closing and reopening the app. Access tokens are
     // refreshed on demand by SpotifyAuthImpl when a call needs one.
     LaunchedEffect(Unit) {
-        val store = SharedPrefsTokenStore(context)
-        if (store.load() != null && !SpotifyCoreSession.isConnected) {
-            val auth = SpotifyAuthImpl(store)
-            SpotifyCoreSession.auth = auth
-            SpotifyCoreSession.catalog = SpotifyCatalogImpl(auth)
-            SpotifyCoreSession.player = SpotifyConnectPlayer(auth)
-            spotifyConnected = true
-        }
+        SpotifyCoreSession.restore(context)
+        spotifyConnected = SpotifyCoreSession.isConnected
     }
     // Spotify OAuth return: the code the browser brought back is exchanged
     // here, against the Client ID / verifier saved when the login screen
