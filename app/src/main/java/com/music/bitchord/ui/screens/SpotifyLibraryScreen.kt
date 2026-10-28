@@ -12,25 +12,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
-import org.jetbrains.compose.resources.painterResource
-import com.music.bitchord.sharedui.resources.spotify_logo
-import com.music.bitchord.sharedui.resources.Res
-import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Icon
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,43 +35,66 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.music.bitchord.R
-import com.music.bitchord.data.settings.AppSettings
-import com.music.bitchord.data.spotify.SpotifyLibrary
-import com.music.bitchord.data.spotify.SpotifyPlaylist
-import com.music.bitchord.data.spotify.SpotifyTrack
+import com.music.bitchord.sharedui.resources.Res
+import com.music.bitchord.sharedui.resources.spotify_logo
+import com.music.bitchord.spotifycore.SpotifyCoreSession
+import com.music.bitchord.spotifycore.SpotifyPlaylist
+import com.music.bitchord.spotifycore.SpotifyTrack
+import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.painterResource
 
 /**
- * The signed-in Spotify account's playlists. A tap opens one as an ordinary
- * playlist page ([onOpenPlaylist]) — this screen is only the way in.
+ * The clean-core Spotify library: playlists and Liked Songs from the
+ * official Web API, loaded after sign-in. Tapping a track asks the
+ * Connect player to play it on an active Spotify device; with no
+ * device active the error is shown instead of a silent miss.
  */
 @Composable
 fun SpotifyLibraryScreen(
-    onOpenPlaylist: (SpotifyPlaylist) -> Unit,
     onOpenLogin: () -> Unit,
-    onOpenTokenSetup: () -> Unit,
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
 ) {
-    val cookie by AppSettings.spotifySpdcToken.collectAsStateWithLifecycle()
+    val connected = SpotifyCoreSession.isConnected
     var playlists by remember { mutableStateOf<List<SpotifyPlaylist>>(emptyList()) }
+    var liked by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var expandedPlaylistId by remember { mutableStateOf<String?>(null) }
+    var expandedTracks by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
+    var playError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
-    LaunchedEffect(cookie) {
-        if (cookie.isBlank()) {
+    LaunchedEffect(connected) {
+        if (!connected) {
             playlists = emptyList()
+            liked = emptyList()
             error = null
             return@LaunchedEffect
         }
+        val catalog = SpotifyCoreSession.catalog ?: return@LaunchedEffect
         loading = true
         error = null
-        runCatching { SpotifyLibrary.playlists() }
-            .onSuccess { playlists = it }
-            .onFailure { error = it.message }
+        runCatching {
+            playlists = catalog.playlists()
+            liked = catalog.likedTracks()
+        }.onFailure { error = it.message }
         loading = false
+    }
+
+    fun play(track: SpotifyTrack) {
+        val player = SpotifyCoreSession.player
+        if (player == null) {
+            playError = "Spotify is not connected"
+            return
+        }
+        scope.launch {
+            runCatching { player.play(listOf(track.uri)) }
+                .onSuccess { playError = null }
+                .onFailure { playError = it.message ?: "Could not start playback" }
+        }
     }
 
     LazyColumn(
@@ -101,7 +120,7 @@ fun SpotifyLibraryScreen(
                 )
             }
         }
-        if (cookie.isBlank()) {
+        if (!connected) {
             item {
                 Column(Modifier.padding(horizontal = 20.dp)) {
                     Text(
@@ -112,10 +131,6 @@ fun SpotifyLibraryScreen(
                     Spacer(Modifier.height(16.dp))
                     Button(onClick = onOpenLogin) {
                         Text(stringResource(R.string.spotify_sign_in))
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = onOpenTokenSetup) {
-                        Text(stringResource(R.string.spotify_use_spdc_token))
                     }
                 }
             }
@@ -136,13 +151,83 @@ fun SpotifyLibraryScreen(
                     )
                 }
             }
-            items(playlists, key = { it.id }) { item ->
-                LibraryRow(
-                    title = item.name,
-                    subtitle = item.owner.orEmpty(),
-                    imageUrl = item.imageUrl,
-                    onClick = { onOpenPlaylist(item) },
-                )
+            playError?.let { message ->
+                item {
+                    Text(
+                        text = message,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                }
+            }
+            if (liked.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "Liked Songs",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 4.dp),
+                    )
+                }
+                items(liked, key = { it.id }) { track ->
+                    LibraryRow(
+                        title = track.title,
+                        subtitle = track.artists.joinToString(", "),
+                        imageUrl = track.imageUrl,
+                        onClick = { play(track) },
+                    )
+                }
+            }
+            if (playlists.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "Playlists",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 4.dp),
+                    )
+                }
+                items(playlists, key = { it.id }) { item ->
+                    LibraryRow(
+                        title = item.name,
+                        subtitle = item.owner.orEmpty(),
+                        imageUrl = item.imageUrl,
+                        onClick = {
+                            val catalog = SpotifyCoreSession.catalog
+                            if (expandedPlaylistId == item.id) {
+                                expandedPlaylistId = null
+                                expandedTracks = emptyList()
+                            } else if (catalog != null) {
+                                expandedPlaylistId = item.id
+                                scope.launch {
+                                    runCatching { catalog.playlistTracks(item.id) }
+                                        .onSuccess { expandedTracks = it }
+                                        .onFailure { error = it.message }
+                                }
+                            }
+                        },
+                    )
+                    if (expandedPlaylistId == item.id) {
+                        expandedTracks.forEach { track ->
+                            LibraryRow(
+                                title = track.title,
+                                subtitle = track.artists.joinToString(", "),
+                                imageUrl = track.imageUrl,
+                                onClick = { play(track) },
+                            )
+                        }
+                    }
+                }
+            }
+            if (!loading && error == null && playlists.isEmpty() && liked.isEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.spotify_connect_subtitle),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                }
             }
         }
     }

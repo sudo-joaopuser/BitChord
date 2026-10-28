@@ -85,7 +85,7 @@ fun AccountAndScrobblingScreen(
         // One card: who is signed in, which profile is listening, and the way
         // out, with the explanation of profiles underneath.
         SettingsGroup(
-            footer = if (signedIn) stringResource(R.string.account_profiles_help) else null,
+            footer = if (signedIn) stringResource(R.string.spotify_account_help) else null,
             topSpacing = 0.dp,
         ) {
             AccountCard(

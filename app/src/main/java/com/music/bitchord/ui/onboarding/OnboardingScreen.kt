@@ -71,7 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.music.bitchord.R
 import com.music.bitchord.sharedui.resources.Res
-import com.music.bitchord.sharedui.resources.ic_google_g
+import com.music.bitchord.sharedui.resources.spotify_logo
 import com.music.bitchord.sharedui.resources.ic_logo
 import org.jetbrains.compose.resources.painterResource
 import com.music.bitchord.ui.icons.BitChordIcons
@@ -98,7 +98,7 @@ fun OnboardingScreen(
     initialName: String,
     /** Saves the party name. Called on Next, before the second page. */
     onNameChosen: (String) -> Unit,
-    /** Opens the Google sign-in. The caller finishes onboarding once it lands. */
+    /** Opens the clean-core Spotify sign-in. The caller finishes onboarding once it lands. */
     onSignIn: () -> Unit,
     onFinish: () -> Unit,
     modifier: Modifier = Modifier,
@@ -108,8 +108,8 @@ fun OnboardingScreen(
     val focusManager = LocalFocusManager.current
 
     BackHandler(enabled = page == PAGE_CONNECT) { page = PAGE_NAME }
-    // "Sign in with Google" goes through the app's own sign-in WebView, raised
-    // over this page; the account landing is what ends the welcome.
+    // "Sign in with Spotify" opens the clean-core login over this page;
+    // the account landing is what ends the welcome.
     LaunchedEffect(signedIn, page) {
         if (signedIn && page == PAGE_CONNECT) onFinish()
     }
@@ -279,12 +279,12 @@ private fun ColumnScope.ConnectPage(
     Spacer(Modifier.weight(1f))
 
     PillButton(
-        label = stringResource(R.string.onboarding_sign_in_google),
+        label = stringResource(R.string.onboarding_sign_in_spotify),
         onClick = onSignIn,
         primary = true,
         leading = {
             Image(
-                painter = painterResource(Res.drawable.ic_google_g),
+                painter = painterResource(Res.drawable.spotify_logo),
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
             )

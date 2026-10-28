@@ -124,7 +124,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.music.bitchord.auth.DiscordLoginScreen
 import com.music.bitchord.auth.SpotifyLoginLink
-import com.music.bitchord.auth.SpotifyLoginScreen
 import com.music.bitchord.spotifycore.SharedPrefsTokenStore
 import com.music.bitchord.spotifycore.SpotifyAuthImpl
 import com.music.bitchord.spotifycore.SpotifyCatalogImpl
@@ -186,7 +185,6 @@ import com.music.bitchord.data.sources.TrackMatcher
 import com.music.bitchord.ui.screens.SpotifyCanvasAuthScreen
 import com.music.bitchord.ui.screens.SpotifyCoreLoginScreen
 import com.music.bitchord.ui.screens.SpotifyLibraryScreen
-import com.music.bitchord.data.spotify.SPOTIFY_PAGE_PREFIX
 import com.music.bitchord.playback.AudioCache
 import com.music.bitchord.playback.LinkRequest
 import com.music.bitchord.playback.MusicLink
@@ -578,10 +576,25 @@ private fun BitChordApp(
     }
     var showSpotifyCoreLogin by remember { mutableStateOf(false) }
     var spotifyLoginError by remember { mutableStateOf<String?>(null) }
+    var spotifyConnected by remember { mutableStateOf(SpotifyCoreSession.isConnected) }
+    var navigateToSpotifyAfterLogin by remember { mutableStateOf(false) }
+    // Restore the clean-core session from saved tokens on launch, so a
+    // sign-in survives closing and reopening the app. Access tokens are
+    // refreshed on demand by SpotifyAuthImpl when a call needs one.
+    LaunchedEffect(Unit) {
+        val store = SharedPrefsTokenStore(context)
+        if (store.load() != null && !SpotifyCoreSession.isConnected) {
+            val auth = SpotifyAuthImpl(store)
+            SpotifyCoreSession.auth = auth
+            SpotifyCoreSession.catalog = SpotifyCatalogImpl(auth)
+            SpotifyCoreSession.player = SpotifyConnectPlayer(auth)
+            spotifyConnected = true
+        }
+    }
     // Spotify OAuth return: the code the browser brought back is exchanged
     // here, against the Client ID / verifier saved when the login screen
     // opened the browser. On success the clean core session is set and
-    // Sources + library read from it; on failure the login screen reopens
+    // the library page is opened; on failure the login screen reopens
     // with the error, so the user can retry in the app.
     val spotifyLoginCode by SpotifyLoginLink.pendingCode.collectAsStateWithLifecycle()
     LaunchedEffect(spotifyLoginCode) {
@@ -608,6 +621,8 @@ private fun BitChordApp(
         if (result.isSuccess) {
             spotifyLoginError = null
             showSpotifyCoreLogin = false
+            spotifyConnected = true
+            navigateToSpotifyAfterLogin = true
         } else {
             spotifyLoginError = result.exceptionOrNull()?.message ?: "Falha no login com Spotify"
             showSpotifyCoreLogin = true
@@ -663,7 +678,6 @@ private fun BitChordApp(
     // their scrim has to cover the tab bar and mini player, which are drawn
     // after it.
     var showDiscordLogin by remember { mutableStateOf(false) }
-    var showSpotifyLogin by remember { mutableStateOf(false) }
     var discordDialog by remember { mutableStateOf<DiscordDialog?>(null) }
     var songActions by remember { mutableStateOf<Song?>(null) }
     var showLyricsOffset by remember { mutableStateOf(false) }
@@ -761,6 +775,14 @@ private fun BitChordApp(
     // [AppNavigator]. Whatever was opened last is what is on screen, and back
     // (the gesture or the bar's button alike) undoes exactly that.
     val navigator = viewModel.navigator
+    // After a clean-core sign-in, open the Spotify library page so the
+    // user lands on loaded playlists and Liked Songs, not back on Sources.
+    LaunchedEffect(navigateToSpotifyAfterLogin) {
+        if (navigateToSpotifyAfterLogin) {
+            navigator.push(AppRoute.Spotify)
+            navigateToSpotifyAfterLogin = false
+        }
+    }
     val detailStack by viewModel.detailStack.collectAsStateWithLifecycle()
     val visibleEntry = navigator.visibleEntry(detailStack.size)
     /** The route on screen, or null when a release page or a tab is. */
@@ -2779,17 +2801,7 @@ private fun BitChordApp(
                             )
                         } else if (pageRoute == AppRoute.Spotify) {
                             SpotifyLibraryScreen(
-                                onOpenPlaylist = { playlist ->
-                                    viewModel.openDetail(
-                                        browseId = SPOTIFY_PAGE_PREFIX + playlist.id,
-                                        title = playlist.name,
-                                        subtitle = playlist.owner ?: context.getString(R.string.spotify),
-                                        thumbnailUrl = playlist.imageUrl,
-                                        type = BrowseType.PLAYLIST,
-                                    )
-                                },
-                                onOpenLogin = { showSpotifyLogin = true },
-                                onOpenTokenSetup = { showSpotifyCanvasAuth = true },
+                                onOpenLogin = { showSpotifyCoreLogin = true },
                                 contentPadding = listPadding,
                             )
                         } else if (pageRoute == AppRoute.Discord) {
@@ -2806,10 +2818,7 @@ private fun BitChordApp(
                                 signedIn = signedIn,
                                 account = account,
                                 channelName = selectedChannelName,
-                                onSignIn = {
-                                    navigator.clear()
-                                    webSession = WebSessionMode.SIGN_IN
-                                },
+                                onSignIn = { showSpotifyCoreLogin = true },
                                 onSwitchChannel = {
                                     viewModel.loadChannels()
                                     showAccountSelector = true
@@ -2855,10 +2864,7 @@ private fun BitChordApp(
                                 windowWidth = windowWidth,
                                 signedIn = signedIn,
                                 account = account,
-                                onSignIn = {
-                                    navigator.clear()
-                                    webSession = WebSessionMode.SIGN_IN
-                                },
+                                onSignIn = { showSpotifyCoreLogin = true },
                                 onSignOut = { viewModel.signOut() },
                                 onAccountScrobbling = { navigator.push(AppRoute.AccountScrobbling) },
                                 onEqualizer = { navigator.push(AppRoute.Equalizer) },
@@ -4784,12 +4790,12 @@ private fun BitChordApp(
             ) { it },
         ) {
             OnboardingScreen(
-                signedIn = signedIn,
+                signedIn = spotifyConnected,
                 initialName = remember {
                     ListenTogether.nickname().ifBlank { account?.name.orEmpty() }
                 },
                 onNameChosen = ListenTogether::setNickname,
-                onSignIn = { webSession = WebSessionMode.SIGN_IN },
+                onSignIn = { showSpotifyCoreLogin = true },
                 onFinish = AppSettings::setOnboardingComplete,
             )
         }
@@ -5213,44 +5219,6 @@ private fun BitChordApp(
                         onTokenCaptured = { token ->
                             AppSettings.setDiscordToken(token)
                             showDiscordLogin = false
-                        },
-                    )
-                }
-            }
-        }
-
-        // ---- Spotify sign-in (full screen WebView) ----
-        // Out here with Discord's rather than on the Spotify page itself: see
-        // SpotifyLoginScreen for what the blurred content tree does to a WebView.
-        if (showSpotifyLogin) {
-            BackHandler { showSpotifyLogin = false }
-            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                Column(Modifier.fillMaxSize()) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(onClick = { showSpotifyLogin = false }) {
-                            Icon(
-                                Icons.Rounded.Close,
-                                contentDescription = stringResource(R.string.close),
-                                tint = MaterialTheme.colorScheme.onBackground,
-                            )
-                        }
-                        Text(
-                            stringResource(R.string.spotify_sign_in),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onBackground,
-                        )
-                    }
-                    SpotifyLoginScreen(
-                        modifier = Modifier.navigationBarsPadding(),
-                        onConnected = { token ->
-                            AppSettings.setSpotifySpdcToken(token)
-                            showSpotifyLogin = false
                         },
                     )
                 }

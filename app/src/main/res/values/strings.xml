@@ -119,7 +119,7 @@
     <string name="connected">Connected</string>
     <string name="account_integrations">Account &amp; integrations</string>
     <string name="spotify">Spotify</string>
-    <string name="spotify_connect_subtitle">Sign in to load your playlists. Playback uses YouTube Music.</string>
+    <string name="spotify_connect_subtitle">Sign in to load your playlists and liked songs.</string>
     <string name="spotify_sign_in">Sign in with Spotify</string>
     <string name="spotify_use_spdc_token">Use sp_dc token</string>
     <string name="spotify_disconnect">Disconnect</string>
@@ -497,7 +497,7 @@
     <string name="wifi_only_download_refusal">Downloads are limited to Wi-Fi. Turn that off in Settings to use mobile data.</string>
     <string name="pinned_playlist_limit">Only %1$d playlists can be pinned</string>
     <string name="downloaded_playlist">Downloaded playlist</string>
-    <string name="library_sign_in_description">Sign in to your Google account to see your liked songs, playlists, and YouTube Music history.</string>
+    <string name="spotify_sign_in_description">Sign in to your Spotify account to see your liked songs and playlists.</string>
     <string name="downloads_progress">Downloads · %1$d%%</string>
     <string name="downloads_finished">Downloads · finished</string>
     <string name="downloading_progress">Downloading · %1$d%%</string>
@@ -856,8 +856,8 @@
     <string name="swipe_plays_next">Swiping a song plays it next</string>
     <string name="swipe_adds_to_queue">When disabled, swiping adds the song to the end of the queue</string>
     <string name="import_backup_warning">This replaces this device’s settings and listening history with the contents of the file. Export the current data first if you want to keep it.</string>
-    <string name="youtube_music_account">YouTube Music account</string>
-    <string name="tap_to_sign_in_google">Tap to sign in with Google</string>
+    <string name="spotify_account">Spotify account</string>
+    <string name="tap_to_sign_in_spotify">Tap to sign in with Spotify</string>
     <string name="export_succeeded">Exported settings and %1$s</string>
     <string name="export_failed">Export failed: %1$s</string>
     <string name="import_succeeded">Imported %1$s from v%2$s</string>
@@ -891,7 +891,7 @@
     <string name="selected_account">Selected account</string>
     <string name="listen_as">Listen as</string>
     <string name="default_youtube_profile">YouTube Music default profile</string>
-    <string name="account_profiles_help">A Google account can have Personal and Brand profiles. Each has its own library, likes and history.</string>
+    <string name="spotify_account_help">Your Spotify account is used for your library, liked songs and playlists.</string>
     <string name="choose_profile">Choose a profile</string>
     <string name="use_this_profile">Use this profile</string>
     <string name="switch_profile_hint">Switch using the avatar, then use this profile.</string>
@@ -1174,9 +1174,9 @@
     <string name="onboarding_name_hint">Your name</string>
     <string name="onboarding_name_footer">Friends see this when you Listen Together. You can change it later in Settings.</string>
     <string name="onboarding_next">Next</string>
-    <string name="onboarding_connect_title">Connect your YouTube account</string>
+    <string name="onboarding_connect_title">Connect your Spotify account</string>
     <string name="onboarding_connect_body">Bring your library, playlists and mixes with you, and start a Listen Together party with friends.</string>
-    <string name="onboarding_sign_in_google">Sign in with Google</string>
+    <string name="onboarding_sign_in_spotify">Sign in with Spotify</string>
     <string name="onboarding_skip_sign_in">Skip sign in</string>
     <string name="onboarding_back">Back</string>
     <string name="song_info">Song Info</string>

@@ -1954,7 +1954,7 @@ private fun formatCacheSize(mb: Int): String {
     return if (gb == gb.toInt().toFloat()) "${gb.toInt()} GB" else "%.1f GB".format(Locale.ROOT, gb)
 }
 
-/** Who you're signed in as, straight from YouTube Music's account menu. */
+/** Who you're signed in as, from the Spotify account menu. */
 @Composable
 internal fun AccountCard(
     signedIn: Boolean,
@@ -2023,7 +2023,7 @@ internal fun AccountCard(
             Text(
                 text = account?.email?.takeIf { it.isNotBlank() }
                     ?: stringResource(
-                        if (signedIn) R.string.youtube_music_account else R.string.tap_to_sign_in_google,
+                        if (signedIn) R.string.spotify_account else R.string.tap_to_sign_in_spotify,
                     ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
