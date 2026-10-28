@@ -195,7 +195,7 @@ fun SpotifyLibraryScreen(
                     playError = if (failure is SpotifyApiException && failure.status == 404) {
                         "NO_ACTIVE_DEVICE"
                     } else {
-                        failure.message ?: "Could not start playback"
+                        formatSpotifyError(failure)
                     }
                 }
         }
@@ -217,7 +217,7 @@ fun SpotifyLibraryScreen(
         searching = true
         searchError = null
         scope.launch {
-            runCatching { catalog.search(query, limit = 20, market = profileCountry) }
+            runCatching { catalog.search(query, limit = 10, market = profileCountry) }
                 .onSuccess { searchResults = it }
                 .onFailure { searchError = formatSpotifyError(it) }
             searching = false

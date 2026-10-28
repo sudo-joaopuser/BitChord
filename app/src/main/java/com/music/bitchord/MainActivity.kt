@@ -3293,7 +3293,19 @@ private fun BitChordApp(
                             } ?: ExploreScreen(
                                 state = exploreState,
                                 listState = exploreListState,
-                                onCategoryClick = viewModel::openMoodGenre,
+                                // Spotify grid items from fetchExplore: the
+                                // sign-in entry opens the Spotify login, a
+                                // track plays via Connect (never the old
+                                // player), anything else keeps the old path.
+                                onCategoryClick = { item ->
+                                    when {
+                                        item.browseId == "spotify:login" ->
+                                            showSpotifyCoreLogin = true
+                                        item.browseId.startsWith("spotify:track:") ->
+                                            playSpotifyUri(item.browseId)
+                                        else -> viewModel.openMoodGenre(item)
+                                    }
+                                },
                                 onRetry = viewModel::loadExplore,
                                 refreshing = MainViewModel.Feed.EXPLORE in refreshing,
                                 onRefresh = { viewModel.refresh(MainViewModel.Feed.EXPLORE) },

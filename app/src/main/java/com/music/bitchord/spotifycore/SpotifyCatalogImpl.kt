@@ -137,11 +137,15 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
 
     override suspend fun search(query: String, limit: Int, market: String?): List<SpotifyTrack> {
         val q = URLEncoder.encode(query, "UTF-8")
+        // Apps created after 11 Feb 2026 cap search at 10 results per
+        // request; asking for more answers 400 Invalid limit. Clamp here
+        // so no caller can ever blow the ceiling, whatever limit it asks.
+        val safeLimit = limit.coerceIn(1, 10)
         // spotify-dart's Search.get passes an optional market; without one
         // the API answers for no market at all, so send the account's
         // country (from /me) when we know it, like Spotube's market setting.
         val marketParam = market?.takeIf { it.isNotBlank() }?.let { "&market=$it" }.orEmpty()
-        val tracks = get("/search?q=$q&type=track&limit=$limit$marketParam")
+        val tracks = get("/search?q=$q&type=track&limit=$safeLimit$marketParam")
             .optJSONObject("tracks")?.optJSONArray("items") ?: return emptyList()
         return (0 until tracks.length()).mapNotNull { i ->
             tracks.optJSONObject(i)?.let { SpotifyParsing.trackFrom(it) }
@@ -251,7 +255,11 @@ class SpotifyConnectPlayer(private val tokens: TokenSource) : SpotifyPlayer {
     override suspend fun transfer(deviceId: String) {
         val body = JSONObject().apply {
             put("device_ids", JSONArray().apply { put(deviceId) })
-            put("play", false)
+            // play:true, not false: a transfer that pauses playback and
+            // is followed by a failed play leaves the user with playback
+            // stopped everywhere. Resuming the current context first means
+            // a failed play still leaves music playing on the new device.
+            put("play", true)
         }.toString()
         SpotifyHttp.api(token(), "PUT", "/me/player", body)
     }

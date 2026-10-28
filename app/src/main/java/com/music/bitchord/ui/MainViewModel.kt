@@ -39,6 +39,7 @@ import com.music.bitchord.data.model.LibraryState
 import com.music.bitchord.data.model.LikeStatus
 import com.music.bitchord.data.model.MoodGenre
 import com.music.bitchord.data.model.MoodGenreSection
+import com.music.bitchord.spotifycore.SpotifyCoreSession
 import com.music.bitchord.data.model.PlaylistPrivacy
 import com.music.bitchord.data.model.SearchFilter
 import com.music.bitchord.data.model.SearchResult
@@ -1281,9 +1282,52 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun fetchExplore() {
-        val state: UiState<List<MoodGenreSection>> = UiState.Error(text(R.string.nothing_to_explore))
-        _explore.value = state
-        (state as? UiState.Success)?.data?.let(::loadMoodGenreArtwork)
+        // The YouTube browse feed is gone, so Explore used to be a
+        // hardcoded error. With a Spotify session it now shows real
+        // content: the user's top tracks as tappable grid items
+        // (browseId = spotify:track:..., played via playSpotifyUri by
+        // the Activity's category-click handler). Without a session it
+        // shows a Spotify sign-in entry instead of anything YouTube.
+        val catalog = SpotifyCoreSession.catalog
+            ?: if (SpotifyCoreSession.restore(getApplication())) SpotifyCoreSession.catalog else null
+        if (catalog == null) {
+            _explore.value = UiState.Success(
+                listOf(
+                    MoodGenreSection(
+                        title = text(R.string.spotify_sign_in),
+                        items = listOf(
+                            MoodGenre(
+                                title = text(R.string.spotify_sign_in),
+                                browseId = "spotify:login",
+                                params = null,
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            return
+        }
+        val tracks = runCatching { catalog.topTracks(20) }.getOrDefault(emptyList())
+        if (tracks.isEmpty()) {
+            _explore.value = UiState.Error(text(R.string.nothing_to_explore))
+            return
+        }
+        _explore.value = UiState.Success(
+            listOf(
+                MoodGenreSection(
+                    title = text(R.string.spotify_top_tracks),
+                    items = tracks.map { track ->
+                        MoodGenre(
+                            title = listOf(track.title, track.artists.joinToString(", "))
+                                .filter { it.isNotBlank() }.joinToString(" — "),
+                            browseId = track.uri,
+                            params = "spotify-track",
+                            thumbnailUrl = track.imageUrl,
+                        )
+                    },
+                ),
+            ),
+        )
     }
 
     /**
@@ -1735,9 +1779,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     return@collectLatest
                 }
 
-                // No YouTube catalogue left to search.
+                // No YouTube catalogue left to search. The Sources search
+                // is what remains: enabled sources answer here, so a Spotify
+                // result row (videoId = spotify:track:...) taps straight
+                // into playSpotifyUri via playRadio, never the old player.
                 if (request.requestId != newestRequestId.get()) return@collectLatest
-                _results.value = UiState.Error(text(R.string.no_results))
+                val (above, below) = sourceResults(request.query, request.filter)
+                val rows = above + below
+                if (rows.isEmpty()) {
+                    _results.value = UiState.Error(text(R.string.no_results))
+                } else {
+                    searchCache.put(key, SearchCacheEntry(rows, null))
+                    searchSession = SearchSession(key, request.requestId, request.filter, null)
+                    _results.value = UiState.Success(rows)
+                }
             }
     }
 
@@ -1971,7 +2026,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         const val SOURCE_SEARCH_TIMEOUT_MS = 4000L
 
         /** Enough to be worth scrolling, short enough not to bury YouTube's own rows. */
-        const val SOURCE_SEARCH_LIMIT = 12
+        const val SOURCE_SEARCH_LIMIT = 10
 
         /**
          * What a page with an empty listing says.
