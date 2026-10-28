@@ -11,7 +11,6 @@ import com.music.bitchord.data.lyrics.ProviderLyrics
 import com.music.bitchord.data.lyrics.PaxSenix
 import com.music.bitchord.data.lyrics.normalizePaxSenixApiKey
 import com.music.bitchord.data.lyrics.toEnhancedLrc
-import com.music.bitchord.data.lyrics.youtubeStrings
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -148,15 +147,6 @@ class ProviderLyricsTest {
             .filterNot { it.isGap }
         assertEquals(listOf("right first", "right last"), lines.map { it.text })
         assertEquals(listOf(1_000L, 199_000L), lines.map { it.timeMs })
-    }
-
-    @Test
-    fun `YouTube nested text objects are traversed without crashing`() {
-        val response = Json.parseToJsonElement(
-            """{"text":{"runs":[{"text":"Lyrics"}]}}"""
-        )
-
-        assertEquals(listOf("Lyrics"), response.youtubeStrings())
     }
 
     // ---- Syllables, provider by provider -------------------------------------

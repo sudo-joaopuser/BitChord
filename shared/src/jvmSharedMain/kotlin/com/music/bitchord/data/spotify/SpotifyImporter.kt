@@ -1,9 +1,6 @@
 package com.music.bitchord.data.spotify
 
 import com.music.bitchord.data.Http
-import com.music.bitchord.data.YtMusicRepository
-import com.music.bitchord.data.model.SearchFilter
-import com.music.bitchord.data.model.SearchResult
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.sources.TrackMatcher
 import kotlinx.coroutines.Dispatchers
@@ -160,22 +157,10 @@ object SpotifyImporter {
      * best candidate by title, artist, length and album, and failing that the
      * search's first hit.
      */
-    suspend fun matchTrack(track: SpotifyTrack): Song? {
-        val query = listOf(track.title, track.artist).filter { it.isNotBlank() }.joinToString(" ")
-        val candidates = YtMusicRepository.search(query, SearchFilter.SONGS).getOrNull()
-            ?.filterIsInstance<SearchResult.Track>()
-            ?.map { it.song }
-            .orEmpty()
-        return TrackMatcher.best(
-            candidates,
-            TrackMatcher.Target(
-                title = track.title,
-                artist = track.artist,
-                durationSec = track.durationMs.takeIf { it > 0 }?.div(1000),
-                album = track.album,
-            ),
-        ) ?: candidates.firstOrNull()
-    }
+    // The YouTube Music match is gone: no candidate exists to return.
+    // Kept as a function so the importer's callers still compile; section 1
+    // removes this file outright.
+    suspend fun matchTrack(track: SpotifyTrack): Song? = null
 
     /** Tracks the embed page lists before it cuts off. */
     private const val EMBED_TRACK_LIMIT = 100
@@ -265,8 +250,8 @@ object SpotifyImporter {
                         "${track.title} ${track.artist}".trim()
                     }
 
-                    val searchResult = YtMusicRepository.search(query, SearchFilter.SONGS).getOrNull()
-                    val candidates = searchResult?.filterIsInstance<SearchResult.Track>()?.map { it.song }.orEmpty()
+                    // No YouTube search anymore: every track stays unmatched.
+                    val candidates = emptyList<Song>()
 
                     val target = TrackMatcher.Target(
                         title = track.title,

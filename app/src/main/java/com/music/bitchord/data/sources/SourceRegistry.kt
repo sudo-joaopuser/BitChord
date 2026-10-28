@@ -75,13 +75,9 @@ data class SourceConfig(
 
 /**
  * The user's sources, always tried in the fixed order [SourceKind] declares:
- * their own addons first, then JioSaavn, then YouTube Music.
+ * their own addons first, then JioSaavn, then Spotify.
  *
- * [SourceKind.YOUTUBE] is seeded on first run and cannot be deleted, only
- * disabled — it needs no configuration, so a "remove" would delete something
- * the user could not then re-create by typing anything in, it would just be a
- * switch that hides itself. Addons are entirely optional: with none
- * configured, YouTube is the only active source on a fresh install. JioSaavn
+ * Addons are entirely optional. JioSaavn
  * is present but off until the user accepts its catalogue-matching risk.
  */
 object SourceRegistry {
@@ -139,7 +135,7 @@ object SourceRegistry {
     ): List<SourceConfig> {
         // Seeded rather than persisted-on-first-write, so a build adding a new
         // built-in kind picks it up for existing installs too. SourceConfig's
-        // default is the policy: JioSaavn off, YouTube on.
+        // default is the policy: JioSaavn off, Spotify on.
         val seeded = stored + BUILT_IN_KINDS
             .filter { kind -> stored.none { it.kind == kind } }
             .map { SourceConfig(kind = it) }
@@ -151,7 +147,6 @@ object SourceRegistry {
             .map { config ->
                 when {
                     config.kind == SourceKind.SPOTIFY && !config.enabled -> config.copy(enabled = true)
-                    config.kind == SourceKind.YOUTUBE && !config.enabled -> config.copy(enabled = true)
                     config.kind == SourceKind.JIOSAAVN && forceJioSaavnOff -> config.copy(enabled = false)
                     else -> config
                 }
@@ -293,19 +288,8 @@ object SourceRegistry {
         publish(configs.value.filterNot { it.id == configId })
     }
 
-    /**
-     * Turns one source on or off.
-     *
-     * YouTube is not switchable and silently ignores a request to disable it.
-     * It is the only source that can supply a home feed, radio or related
-     * tracks, and nothing else holds the full catalogue — switching it off
-     * doesn't even stop it being played, because a YouTube-queued track whose
-     * substitutes all miss still falls back to it. A switch that cannot honour
-     * its own off position is worse than no switch, so it isn't offered one:
-     * see [SourcesScreen][com.music.bitchord.ui.screens.SourcesScreen].
-     */
+    /** Turns one source on or off. */
     fun setEnabled(configId: String, enabled: Boolean) {
-        if (!enabled && config(configId)?.kind == SourceKind.YOUTUBE) return
         publish(configs.value.map { if (it.id == configId) it.copy(enabled = enabled) else it })
     }
 
@@ -458,7 +442,6 @@ object SourceRegistry {
         SourceKind.CUSTOM_MODULE -> ModuleSource(config)
         SourceKind.MODULE -> ModuleSource(config)
         SourceKind.JIOSAAVN -> JioSaavnSource(config)
-        SourceKind.YOUTUBE -> YouTubeSource(config)
         SourceKind.SPOTIFY -> SpotifySource(config)
     }
 
@@ -503,7 +486,7 @@ object SourceRegistry {
             .build()
             .toString()
 
-    private val BUILT_IN_KINDS = listOf(SourceKind.SPOTIFY, SourceKind.JIOSAAVN, SourceKind.YOUTUBE)
+    private val BUILT_IN_KINDS = listOf(SourceKind.SPOTIFY, SourceKind.JIOSAAVN)
 
     private const val KEY_SOURCES = "sources"
     /** One-shot migration: existing users must explicitly opt in again. */

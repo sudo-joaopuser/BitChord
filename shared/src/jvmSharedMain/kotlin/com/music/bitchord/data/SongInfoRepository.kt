@@ -1,7 +1,5 @@
 package com.music.bitchord.data
 
-import com.music.bitchord.data.innertube.Innertube
-import com.music.bitchord.data.innertube.InnertubeParser
 import com.music.bitchord.data.model.Song
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
@@ -70,29 +68,13 @@ object SongInfoRepository {
                     // opts into nothing.
                     header("Cookie", "SOCS=CAI")
                     parameter("v", song.videoId)
-                    parameter("hl", Innertube.currentLanguage)
                 }
                 check(response.status.value == 200)
                 SongInfoParser.parse(response.bodyAsText(), song.videoId)
             }
         }
-        var album = song.albumName
-        var year: String? = null
-        val release = attempt {
-            val linked = if (song.albumId == null) {
-                YtMusicRepository.trackLinks(song.videoId).getOrThrow()
-            } else song
-            album = album ?: linked.albumName
-            linked.albumId?.let { id ->
-                val header = InnertubeParser.parseBrowseHeader(Innertube.browse(id))
-                album = album ?: header?.title
-                year = header?.subtitle?.split('•')?.map { it.trim() }
-                    ?.firstOrNull { it.matches(Regex("(?:19|20)[0-9]{2}")) }
-            }
-        }
-        (statistics.await().getOrNull() ?: SongInfo(failed = true)).copy(
-            album = album, releaseYear = year,
-        ).let { it.copy(failed = it.failed || release.isFailure) }
+        val album = song.albumName
+        (statistics.await().getOrNull() ?: SongInfo(failed = true)).copy(album = album)
     }
 
     private suspend fun <T> attempt(block: suspend () -> T): Result<T> = try {

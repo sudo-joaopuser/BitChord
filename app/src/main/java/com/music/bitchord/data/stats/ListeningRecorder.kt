@@ -1,12 +1,7 @@
 package com.music.bitchord.data.stats
 
-import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.durationMillis
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.min
 
@@ -129,11 +124,6 @@ object ListeningRecorder {
      */
     private val extras = ConcurrentHashMap<String, Song>()
 
-    /** Ids already sent for, so a track on repeat is asked about once. */
-    private val asked = ConcurrentHashMap.newKeySet<String>()
-
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
     /**
      * [song] with whatever the lookup has found so far.
      *
@@ -151,17 +141,6 @@ object ListeningRecorder {
             )
         }
         if (song.albumName != null && song.artistId != null) return song
-        // Only tracks YouTube can answer for. A file on the device and a
-        // source-module track both carry ids this endpoint has never heard of,
-        // and asking would be a failed request per play, forever.
-        if (song.localUri != null || song.videoId.length != YOUTUBE_ID_LENGTH) return song
-        if (asked.add(song.videoId)) {
-            scope.launch {
-                YtMusicRepository.trackLinks(song.videoId).getOrNull()?.let {
-                    extras[song.videoId] = it
-                }
-            }
-        }
         return song
     }
 

@@ -132,7 +132,6 @@ import com.music.bitchord.spotifycore.SpotifyConnectPlayer
 import com.music.bitchord.spotifycore.SpotifyCoreSession
 import com.music.bitchord.spotifycore.SpotifyLoginFlow
 import com.music.bitchord.auth.WebSessionMode
-import com.music.bitchord.auth.YtMusicLoginScreen
 import com.music.bitchord.data.AppUpdateChecker
 import com.music.bitchord.data.LocalMediaRepository
 import com.music.bitchord.data.listentogether.JamInviteLink
@@ -140,7 +139,7 @@ import com.music.bitchord.data.listentogether.ListenTogether
 import com.music.bitchord.data.listentogether.partyQueueIndexOf
 import com.music.bitchord.data.NerdStats
 import com.music.bitchord.data.TrackLog
-import com.music.bitchord.data.innertube.InnertubeParser
+import com.music.bitchord.data.model.BrowseItem
 import com.music.bitchord.data.model.BrowseType
 import com.music.bitchord.data.model.HomeShelf
 import com.music.bitchord.data.model.LikeStatus
@@ -283,7 +282,6 @@ import com.music.bitchord.ui.components.WebDavConflictAlert
 import com.music.bitchord.ui.components.FieldConfig
 import com.music.bitchord.ui.icons.BitChordIcons
 import androidx.media3.common.Player
-import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.ui.player.NowPlayingScreen
 import com.music.bitchord.ui.player.PlayerSheetMotion
 import androidx.compose.ui.geometry.Offset
@@ -473,6 +471,23 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
+private fun artistFromSubtitle(subtitle: String): String {
+    val parts = subtitle.split(" • ").map(String::trim).filter { it.isNotBlank() }
+    return parts.firstOrNull {
+        it.lowercase() !in SUBTITLE_TYPE_WORDS && !it.matches(SUBTITLE_TALLY) && !it.matches(SUBTITLE_DURATION)
+    } ?: subtitle
+}
+
+private val SUBTITLE_TYPE_WORDS = setOf(
+    "song", "video", "album", "single", "ep", "artist",
+    "playlist", "podcast", "episode",
+)
+private val SUBTITLE_TALLY = Regex(
+    "[\\d.,]+\\s*[KMB]?\\s+(plays|views|likes|songs|tracks|subscribers|hours?|minutes?|seconds?)\\b.*",
+    RegexOption.IGNORE_CASE,
+)
+private val SUBTITLE_DURATION = Regex("\\d+:\\d{2}")
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BitChordApp(
@@ -561,6 +576,8 @@ private fun BitChordApp(
             PlayerDeepLink.handled()
         }
     }
+    var showSpotifyCoreLogin by remember { mutableStateOf(false) }
+    var spotifyLoginError by remember { mutableStateOf<String?>(null) }
     // Spotify OAuth return: the code the browser brought back is exchanged
     // here, against the Client ID / verifier saved when the login screen
     // opened the browser. On success the clean core session is set and
@@ -647,8 +664,6 @@ private fun BitChordApp(
     // after it.
     var showDiscordLogin by remember { mutableStateOf(false) }
     var showSpotifyLogin by remember { mutableStateOf(false) }
-    var showSpotifyCoreLogin by remember { mutableStateOf(false) }
-    var spotifyLoginError by remember { mutableStateOf<String?>(null) }
     var discordDialog by remember { mutableStateOf<DiscordDialog?>(null) }
     var songActions by remember { mutableStateOf<Song?>(null) }
     var showLyricsOffset by remember { mutableStateOf(false) }
@@ -1259,7 +1274,7 @@ private fun BitChordApp(
         if (pauseWhileResolving) c.pause()
         try {
             TrackLog.d("Player", "audio switch requested for '${song.title}'", song.videoId)
-            val audio = runCatching { YtMusicRepository.resolveAudio(song) }.getOrNull()
+            val audio: Song? = null
             val stillCurrent = c.currentMediaItemIndex == index &&
                 c.currentMediaItem?.mediaId == song.videoId
 
@@ -1327,7 +1342,7 @@ private fun BitChordApp(
         if (pauseWhileResolving) c.pause()
         try {
             TrackLog.d("Player", "video switch requested for '${song.title}'", song.videoId)
-            val video = runCatching { YtMusicRepository.resolveVideo(song) }.getOrNull()
+            val video: Song? = null
             val stillCurrent = c.currentMediaItemIndex == index &&
                 c.currentMediaItem?.mediaId == song.videoId
 
@@ -1490,18 +1505,7 @@ private fun BitChordApp(
             return@LaunchedEffect
         }
         hasAlternateVersion = false
-        val exists = withContext(Dispatchers.IO) {
-            if (song.isVideo) {
-                runCatching {
-                    val resolved = YtMusicRepository.resolveAudio(song)
-                    resolved.videoId != song.videoId
-                }.getOrDefault(false)
-            } else {
-                runCatching {
-                    YtMusicRepository.resolveVideo(song) != null
-                }.getOrDefault(false)
-            }
-        }
+        val exists = false
         if (player.song?.videoId == song.videoId) {
             hasAlternateVersion = exists
         }
@@ -1722,10 +1726,7 @@ private fun BitChordApp(
                 SearchFilter.ALBUMS
             }
             val query = listOfNotNull(name, subtitle).joinToString(" ")
-            val hit = YtMusicRepository.search(query, filter).getOrNull()
-                ?.filterIsInstance<SearchResult.Browse>()
-                ?.firstOrNull()
-                ?.item
+            val hit: BrowseItem? = null
             if (hit == null) {
                 Toast.makeText(
                     context,
@@ -1833,7 +1834,7 @@ private fun BitChordApp(
         val session = controller ?: return@LaunchedEffect
         when (request) {
             is LinkRequest.Track -> {
-                val song = YtMusicRepository.trackLinks(request.videoId).getOrNull()
+                val song: Song? = null
                 if (song == null) {
                     Toast.makeText(
                         context,
@@ -1857,10 +1858,7 @@ private fun BitChordApp(
                 viewModel.openDetail(request.browseId, title = "")
             }
             is LinkRequest.Search -> {
-                val songs = if (!request.play) null else {
-                    YtMusicRepository.search(request.query, SearchFilter.SONGS).getOrNull()
-                        ?.filterIsInstance<SearchResult.Track>()
-                }
+                val songs: List<SearchResult.Track>? = null
                 val top = songs?.firstOrNull()?.song
                 if (top != null) {
                     playRadio(top, QueueSource(searchLabel, PlaybackSourceType.SEARCH))
@@ -1920,7 +1918,7 @@ private fun BitChordApp(
             Song(
                 videoId = videoId,
                 title = item.title,
-                artist = InnertubeParser.artistFromSubtitle(item.subtitle),
+                artist = artistFromSubtitle(item.subtitle),
                 thumbnailUrl = item.thumbnailUrl,
             )
         }
@@ -2287,7 +2285,7 @@ private fun BitChordApp(
         val current = player.song ?: return@LaunchedEffect
         if (current.albumId != null && current.artistId != null) return@LaunchedEffect
         linksLoading = true
-        links = YtMusicRepository.trackLinks(current.videoId).getOrNull()
+        links = null
         linksLoading = false
     }
     val playerSong = player.song?.let { current ->
@@ -2312,9 +2310,7 @@ private fun BitChordApp(
     // mounts it so the sheet's own setup reads on its own.
     val nowPlaying: @Composable (Song) -> Unit = { song ->
         val effectiveSong = optimisticVersionSong?.takeIf {
-            it.videoId == convertedAudioId || it.videoId == convertedVideoId || it.videoId == keepVideoId ||
-            it.videoId == YtMusicRepository.cachedAudioVersion(song.videoId)?.videoId ||
-            it.videoId == YtMusicRepository.cachedVideoVersion(song.videoId)?.videoId
+            it.videoId == convertedAudioId || it.videoId == convertedVideoId || it.videoId == keepVideoId
         } ?: song
         val displayedSong = activeRadioSeed
             ?.takeIf { (videoId, _) -> effectiveSong.radioName == null && videoId == effectiveSong.videoId }
@@ -2487,7 +2483,7 @@ private fun BitChordApp(
                     )
                 } else {
                     scope.launch {
-                        val found = YtMusicRepository.findArtistPageId(name).getOrNull()
+                        val found: String? = null
                         if (found != null) {
                             viewModel.openDetail(
                                 found,
@@ -2745,7 +2741,7 @@ private fun BitChordApp(
                                     onItemLongPress = onBrowseLongPress,
                                     // Only the Playlists shelf can grow one — see
                                     // [PlaylistShelf].
-                                    onNewPlaylist = if (shelf.title == YtMusicRepository.PLAYLISTS_SHELF) {
+                                    onNewPlaylist = if (shelf.title == "Playlists") {
                                         { creatingPlaylist = true }
                                     } else {
                                         null
@@ -3147,7 +3143,7 @@ private fun BitChordApp(
                                                 Song(
                                                     videoId = videoId,
                                                     title = item.title,
-                                                    artist = InnertubeParser.artistFromSubtitle(item.subtitle),
+                                                    artist = artistFromSubtitle(item.subtitle),
                                                     thumbnailUrl = item.thumbnailUrl,
                                                 ),
                                                 QueueSource(
@@ -4101,7 +4097,7 @@ private fun BitChordApp(
             LaunchedEffect(heldSong.videoId, needsLinks) {
                 if (!needsLinks) return@LaunchedEffect
                 menuLinksLoading = true
-                menuLinks = YtMusicRepository.trackLinks(heldSong.videoId).getOrNull()
+                menuLinks = null
                 menuLinksLoading = false
             }
             val song = menuLinks?.takeIf { needsLinks && it.videoId == heldSong.videoId }?.let { extra ->
@@ -4140,9 +4136,7 @@ private fun BitChordApp(
             // so a menu opened mid-switch describes the version actually
             // becoming current, not the one about to be left.
             val versionEffectiveSong = optimisticVersionSong?.takeIf {
-                it.videoId == convertedAudioId || it.videoId == convertedVideoId || it.videoId == keepVideoId ||
-                    it.videoId == YtMusicRepository.cachedAudioVersion(song.videoId)?.videoId ||
-                    it.videoId == YtMusicRepository.cachedVideoVersion(song.videoId)?.videoId
+                it.videoId == convertedAudioId || it.videoId == convertedVideoId || it.videoId == keepVideoId
             } ?: song
             fun versionAlignmentPending(targetId: String): Boolean =
                 AppSettings.smartVersionAlignment.value &&
@@ -4186,8 +4180,7 @@ private fun BitChordApp(
                             c.swapToVersion(originalAudio)
                         }
                         versionEffectiveSong.isVideo || song.isVideo -> {
-                            val cached = YtMusicRepository.cachedAudioVersion(song.videoId)
-                                ?: YtMusicRepository.cachedAudioVersion(versionEffectiveSong.videoId)
+                            val cached: Song? = null
                             if (cached != null && cached.videoId != song.videoId &&
                                 !versionAlignmentPending(cached.videoId)
                             ) {
@@ -4204,8 +4197,7 @@ private fun BitChordApp(
                             scope.launch { switchToMusicOnly(song, pauseWhileResolving = false) }
                         }
                         else -> {
-                            val cached = YtMusicRepository.cachedVideoVersion(song.videoId)
-                                ?: YtMusicRepository.cachedVideoVersion(versionEffectiveSong.videoId)
+                            val cached: Song? = null
                             if (cached != null && cached.videoId != song.videoId &&
                                 !versionAlignmentPending(cached.videoId)
                             ) {
@@ -4864,32 +4856,17 @@ private fun BitChordApp(
                             }
                         }
                     }
-                    YtMusicLoginScreen(
-                        mode = mode,
-                        initialCookie = if (mode == WebSessionMode.SWITCH_CHANNEL) {
-                            googleAccounts.firstOrNull { it.accountId == activeAccountId }?.cookie
-                        } else null,
-                        captureRequest = captureRequest,
-                        onPageReady = { pageReady = it },
-                        onCaptureUnavailable = {
-                            confirmingProfile = false
-                            captureFailed = true
-                        },
-                        onCaptured = { session ->
-                            viewModel.onWebSession(session, mode) { accepted ->
-                                confirmingProfile = false
-                                if (accepted) {
-                                    webSession = null
-                                    if (mode == WebSessionMode.SIGN_IN) {
-                                        navigator.clear()
-                                        selectedTab = TAB_LIBRARY
-                                    }
-                                } else {
-                                    captureFailed = true
-                                }
-                            }
-                        },
-                    )
+                    Box(
+                        Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "YouTube Music sign-in is no longer available in this build",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.padding(24.dp),
+                        )
+                    }
                 }
             }
         }

@@ -8,7 +8,7 @@ import java.util.Locale
  *
  * [headers] travel with the fetch because some sources bind the stream URL to
  * the request that asks for it — see the User-Agent dance in
- * [StreamResolver][com.music.bitchord.data.innertube.StreamResolver]. Sources
+ * the resolver. Sources
  * that don't care leave it empty.
  */
 data class SourceStream(

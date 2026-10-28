@@ -91,7 +91,6 @@ import com.music.bitchord.data.settings.TvSettings
 import kotlin.math.ceil
 import kotlinx.coroutines.delay
 import com.music.bitchord.ui.MainViewModel
-import com.music.bitchord.ui.configureTvSignInWebView
 import com.music.bitchord.ui.onSignedIn
 import com.music.bitchord.ui.tv.TvAppMark
 import com.music.bitchord.ui.tv.auth.TvAuthServer
@@ -1110,7 +1109,7 @@ private fun TvGoogleSignIn(viewModel: MainViewModel, onBack: () -> Unit, onSigne
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Sign In to YouTube Music",
+                        text = "Sign In",
                         style = TvType.Headline,
                         color = TvGlass.TextPrimary,
                     )
@@ -1128,17 +1127,12 @@ private fun TvGoogleSignIn(viewModel: MainViewModel, onBack: () -> Unit, onSigne
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
+                contentAlignment = Alignment.Center,
             ) {
-                com.music.bitchord.auth.YtMusicLoginScreen(
-                    mode = WebSessionMode.SIGN_IN,
-                    configureWebView = ::configureTvSignInWebView,
-                    captureRequest = capture,
-                    onPageReady = { ready -> if (ready) capture++ },
-                    onCaptured = { session ->
-                        viewModel.onWebSession(session, WebSessionMode.SIGN_IN) { success ->
-                            if (success) onSignedIn()
-                        }
-                    },
+                Text(
+                    text = "YouTube Music sign-in is no longer available in this build.",
+                    style = TvType.Body,
+                    color = TvGlass.TextSecondary,
                 )
             }
         }

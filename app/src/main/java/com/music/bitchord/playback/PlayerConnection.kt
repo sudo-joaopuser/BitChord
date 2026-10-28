@@ -688,7 +688,6 @@ fun Song.toMediaItem(): MediaItem {
         // this song too: another play from a list, a restored queue, Android
         // Auto. Everything downstream reads the item's URI and nothing reads
         // the preference, so this is the only place it has to be said.
-        OriginalVersion.isPinned(videoId) -> directYouTubeUri()
         // The same three fields, for the same reason, on the YouTube path: a
         // source ranked above YouTube gets offered this track before YouTube
         // resolves it — see [SourceResolver.substituteForYouTube] — and that
@@ -779,53 +778,11 @@ fun Song.toMediaItem(): MediaItem {
     }
 }
 
-/**
- * The current song reopened through YouTube alone, bypassing every substitute
- * and quality-upgrade path.  The separate rendition tag is essential: the
- * base cache key may currently contain JioSaavn or module bytes, and resuming
- * that entry as though it were a YouTube WebM corrupts the stream.
- */
-fun Song.toDirectYouTubeMediaItem(): MediaItem =
-    toMediaItem().buildUpon()
-        .setUri(directYouTubeUri())
-        .build()
+/** The current song as a plain media item: no YouTube original to revert to. */
+fun Song.toDirectYouTubeMediaItem(): MediaItem = toMediaItem()
 
-private fun Song.directYouTubeUri(): String =
-    "bitchord://watch?v=$videoId${matchQuery()}&$DIRECT_YOUTUBE_PARAMETER=1&q=original"
-
-/**
- * Whether there is a YouTube upload behind this song to go back *to* — the
- * question "Revert to original" only means something for.
- *
- * Offered for any track that has one rather than only for a track a quality
- * upgrade has visibly swapped, because the swap is not the only way to end up
- * on a copy that is wrong. A source ranked above YouTube gets first refusal on
- * every track — see [SourceResolver.substituteForYouTube] — so a song can be
- * playing JioSaavn's or a module's idea of it from its very first second, with
- * nothing on screen having changed and nothing to undo. Those are precisely the
- * ones worth doubting: the match is made on title, artist and runtime, and a
- * live version, a remaster or a different mix agreeing on all three is a
- * catalogue's ordinary business. The listener is the only one who can hear that
- * it is the wrong recording, and until this was always available they had no
- * way to say so.
- *
- * The three exclusions are all "there is no such upload", not "reverting would
- * be unwise":
- *
- *  - a track queued from a module's own catalogue has no YouTube id at all,
- *    only a source-and-track key that would build a nonsense URI;
- *  - a file on the device is identified by its own `content://` or `file://`
- *    URI, for the same reason;
- *  - a music video *is* the YouTube upload, so there is nowhere for it to go.
- *    Its catalogue match is a separate control with its own way back — see
- *    `VideoAudioVersionButton`.
- */
-fun Song.hasYouTubeOriginal(): Boolean =
-    videoId.isNotBlank() &&
-        !videoId.startsWith("content://") &&
-        !videoId.startsWith("file://") &&
-        !isVideo &&
-        SourceRegistry.parseTrackKey(videoId) == null
+/** No YouTube upload exists to go back to, so this is always false. */
+fun Song.hasYouTubeOriginal(): Boolean = false
 
 /** A playback URI carrying this is explicitly requested YouTube, never a substitute. */
 const val DIRECT_YOUTUBE_PARAMETER = "direct_youtube"

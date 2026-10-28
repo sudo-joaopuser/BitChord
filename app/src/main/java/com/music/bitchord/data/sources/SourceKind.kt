@@ -35,10 +35,6 @@ enum class SourceKind(
      * backend searches. The first is worth spending speculatively and the
      * second is not.
      *
-     * False for [YOUTUBE] as well, though it *is* warmed ahead of time — that
-     * happens through its own read-ahead in
-     * [AudioCache][com.music.bitchord.playback.AudioCache], which speaks video
-     * ids directly and needs no cross-source match to find the track.
      */
     val worthPrefetching: Boolean = false,
     /**
@@ -140,7 +136,7 @@ enum class SourceKind(
     /**
      * Spotify, clean core only: Web API + App Remote / Connect, Premium.
      * Rank -1 so it sits before every other source in the trial order and
-     * is not classed as user-added: it is seeded like YouTube was, not
+     * is not classed as user-added: it is seeded like the other built-ins, not
      * typed in as an addon address. It has no stream URL — see
      * [SpotifySource] — so its row in Sources opens the Spotify login,
      * not a server editor.
@@ -154,21 +150,6 @@ enum class SourceKind(
         rank = -1,
     ),
 
-    /**
-     * The source the app was built on, listed here so it always has a fixed
-     * place: second, behind the module source. It cannot be removed — see
-     * [SourceRegistry]. Nothing else in the app can supply a home feed, a
-     * radio station or a related-tracks queue.
-     */
-    YOUTUBE(
-        label = "YouTube Music",
-        detail = "The full catalogue, at Opus up to about 171 kbps. Lossy — there is no " +
-            "lossless rendition to ask for.",
-        labels = listOf("Lossy", "Full catalogue", "Radio"),
-        needsServer = false,
-        canServeLossless = false,
-        rank = 3,
-    ),
     ;
 
     /** Whether this is a source the user configured, rather than one that ships. */

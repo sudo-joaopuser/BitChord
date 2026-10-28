@@ -28,8 +28,6 @@ import com.music.bitchord.playback.AudioCache
 import com.music.bitchord.playback.LastPlayed
 import com.music.bitchord.playback.BoundedContextPersistence
 import com.music.bitchord.playback.OriginalVersion
-import com.music.bitchord.data.innertube.Innertube
-import com.music.bitchord.data.innertube.AndroidStreamHooks
 import com.music.bitchord.data.listentogether.ListenTogether
 import com.music.bitchord.data.scrobbling.LastFM
 import com.music.bitchord.data.settings.AppSettings
@@ -50,10 +48,9 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         // The player is drawn by the shared UI module; this is what it reads
         // underneath — settings, the Canvas decoder, outputs, the party.
-        AndroidStreamHooks.installEarly()
         PlayerPlatform.install(AndroidPlayerHost(this))
         com.music.bitchord.ui.AppUi.install(com.music.bitchord.ui.AndroidAppUiHost)
-        // The shared data layer (lyrics, the YouTube Music client) logs to
+        // The shared data layer logs to
         // logcat on debug builds only, as the app's own DebugLog always has.
         if (BuildConfig.DEBUG) {
             DebugLog.sink = DebugLog.Sink { level, tag, message, error ->
@@ -69,9 +66,7 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
         SpotifyLibrary.auth = SpotifyLibrary.Auth {
             SpotifyToken.accessToken()?.let { SpotifyLibrary.Tokens(it, SpotifyToken.clientToken()) }
         }
-        // The per-app language picker, which YouTube Music's `hl` follows.
-        // Full tag (zh-Hant / zh-Hans preserved); Innertube maps to hl/gl.
-        Innertube.appLanguage = { AppCompatDelegate.getApplicationLocales().get(0)?.toLanguageTag() }
+        // Full tag (zh-Hant / zh-Hans preserved) for the language picker.
         migrateScriptOnlyAppLocale()
         LyricsTranslation.cacheDir = cacheDir
         // PlaybackService shares this process, so seeding the cookie here means
@@ -86,7 +81,6 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
         // nothing that runs after startup can see any of them half open.
         val backgroundInit = thread(name = "startup-init") {
             SourceRegistry.init(this)
-            AndroidStreamHooks.initInnerTubeX(this)
             // Its own directory: canvas clips are looping video, not audio, and
             // belong in a cache AudioCache's own limit and eviction policy were
             // never sized for. See CanvasCache's doc for why this one exists at
@@ -101,20 +95,11 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
             authStore.select(restoredSession.accountId, restoredSession.activeProfileId)
         }
         authStore.cookie = restoredSession?.cookie
-        Innertube.cookie = restoredSession?.cookie
         // Which account that cookie actually acts as. Read here rather than on
         // demand so the answer is usually in hand before the first request needs
         // it: a play registered under the wrong account is indistinguishable, to
         // the listener, from one that was never registered at all. Fire and
         // forget — every caller works without it, just less precisely.
-        if (restoredSession != null) {
-            // After the cookie, never before: setting the cookie clears any
-            // channel the last session was acting as, so restoring the choice
-            // first would restore it into the value about to be wiped.
-            restoredSession.profiles.firstOrNull { it.profileId == restoredSession.activeProfileId }
-                ?.let { Innertube.selectChannel(it.pageId, it.dataSyncId, it.authUser) }
-            CoroutineScope(Dispatchers.IO).launch { Innertube.ensureSessionScope() }
-        }
         AppSettings.init(this, authStore)
         // Before anything resolves a track: an addon with `checkValidLossless`
         // is gated on this, and the gate reads "no" until it has looked.

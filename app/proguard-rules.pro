@@ -9,15 +9,9 @@
 -dontobfuscate
 -keepattributes SourceFile,LineNumberTable,Signature,InnerClasses,EnclosingMethod,Exceptions,*Annotation*
 
-# ---- Script engines and extractors ------------------------------------------
-# Rhino compiles and runs YouTube's player JavaScript and binds Java classes into
-# it reflectively; NewPipe and InnerTubeX drive it and parse with nanojson/jsoup.
--keep class org.mozilla.javascript.** { *; }
--keep class org.mozilla.classfile.** { *; }
--keep class org.schabi.newpipe.** { *; }
--keep class com.grack.nanojson.** { *; }
+# ---- Script engines -------------------------------------------------------------
+# QuickJS runs module sources; jsoup parses lyrics and catalogue pages in shared.
 -keep class org.jsoup.** { *; }
--keep class com.metrolist.** { *; }
 -keep class com.dokar.quickjs.** { *; }
 
 # ---- Native and crypto --------------------------------------------------------
@@ -45,14 +39,14 @@
 -keep @kotlinx.serialization.Serializable class com.my.kizzy.** { *; }
 
 # ---- WebView bridges ------------------------------------------------------------
-# PoToken minting and the Spotify token page call back into these from JavaScript.
+# The Spotify token page calls back into these from JavaScript.
 -keepclassmembers class * {
     @android.webkit.JavascriptInterface <methods>;
 }
 
 # ---- JVM-only APIs ------------------------------------------------------------
-# Referenced by desktop-only paths in Rhino (JSR-223, java.beans, dynalink),
-# mbassy's EL filters, SMBJ's Kerberos and Ktor's IntelliJ debugger probe. None
+# Referenced by desktop-only paths in mbassy's EL filters, SMBJ's Kerberos
+# and Ktor's IntelliJ debugger probe. None
 # of them exist on Android and none of those paths run here — the debug build,
 # which R8 never touches, has always lived without them.
 -dontwarn java.beans.**

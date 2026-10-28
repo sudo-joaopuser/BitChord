@@ -217,238 +217,27 @@ object SourceResolver {
         // Not YouTube, though, for a row picked from the Addons search: its
         // Opus is a lesser copy of a different upload, and the listener chose
         // this addon's precisely to not be hearing it — see [MIX_PARAM].
-        val fallbacks = active.filterNot {
-            it.configId == configId || (pickedMix != null && it.kind == SourceKind.YOUTUBE)
-        }
+        val fallbacks = active.filterNot { it.configId == configId }
         val (fallbackSource, stream) = bestAcross(fallbacks, target, request) ?: return null
         TrackLog.d(TAG, "fallback: '${target.title}' served by ${fallbackSource.displayName}")
         return stream
     }
 
-    /**
-     * The stream for a YouTube track from a source the user ranked above
-     * YouTube, or null when none of them has the recording.
-     *
-     * A YouTube track keeps its bare video id rather than a
-     * [SourceRegistry.trackKey] — see [YouTubeSource] for why — so it reaches
-     * playback as `bitchord://watch?v=…` and never passes through [resolve].
-     * Without this, ordering a source above YouTube did nothing for anything
-     * *queued* from YouTube: the library, a playlist, radio, the home feed —
-     * which is very nearly everything. The list said "prefer my server" and
-     * only search results honoured it.
-     *
-     * The match is the same strict one [resolve] uses, for the same reason:
-     * this substitutes something else for the track the user picked, and a
-     * loose match plays the wrong song under the right title.
-     *
-     * Every ranked source is asked at once and the first playable answer is
-     * taken — see [bestAcross]. This is the latency-critical half of the pair:
-     * it is racing YouTube's own walk, and a stream that arrives after that race
-     * is lost cannot start a track. The unhurried half is [upgradeFor], which
-     * runs with sound already playing and is where a slow source's better answer
-     * gets its hearing.
-     */
-    suspend fun substituteForYouTube(target: TrackMatcher.Target): SourceStream? {
-        // Video rows always use YouTube's own stream unless the listener
-        // explicitly converts the current item in the player. A module match
-        // is another recording and can be a wrong song altogether.
-        if (target.title.isBlank() || target.isVideo) return null
-        val active = SourceRegistry.activeForPlayback()
-        val youtube = active.firstOrNull { it.kind == SourceKind.YOUTUBE } ?: return null
-        val request = requestForNow()
-        val (source, stream) = bestAcross(rankedAbove(youtube.configId, active), target, request)
-            ?: return null
-        // Says what was found, not what the caller will do with it. This
-        // line used to read "substituted" unconditionally, including for
-        // streams the caller went on to refuse — which made a log of a
-        // track that played on YouTube look like a track that hadn't.
-        TrackLog.d(
-            TAG,
-            "substituted: '${target.title}' served by ${source.displayName} over YouTube" +
-                " at ${stream.format.summary}" + if (stream.belowRequest) " (below request)" else "",
-        )
-        return stream
-    }
+    // YouTube is gone: there is nothing to substitute for anymore.
+    suspend fun substituteForYouTube(target: TrackMatcher.Target): SourceStream? = null
 
-    /**
-     * The reliable last rung for a source-backed queue item whose chosen stream
-     * failed in the player.
-     *
-     * Unlike [resolve], this asks only YouTube. The failed addon/JioSaavn source
-     * must not get another chance to return the identical URL, and unlike
-     * [substituteForYouTube] this starts with metadata rather than an existing
-     * YouTube video id, so it first finds the matching YouTube Music row.
-     */
-    suspend fun youtubeFallback(target: TrackMatcher.Target): SourceStream? {
-        if (target.title.isBlank() || target.isVideo) return null
-        val youtube = SourceRegistry.activeForPlayback()
-            .firstOrNull { it.kind == SourceKind.YOUTUBE }
-            ?: return null
-        return matchAndStream(
-            source = youtube,
-            target = target,
-            request = StreamRequest.Best,
-            strictLength = target.durationSec != null,
-            requireSharedArtist = true,
-        )?.also {
-            TrackLog.d(TAG, "YouTube fallback matched '${target.title}' after its higher-quality source failed")
-        }
-    }
+    // YouTube is gone: no fallback source exists anymore.
+    suspend fun youtubeFallback(target: TrackMatcher.Target): SourceStream? = null
 
-    /**
-     * The copy of [target] held by a source quick enough to ask about *before*
-     * the track is played — or null when no such source is enabled, or none of
-     * them has it.
-     *
-     * This is the same substitution [substituteForYouTube] makes, moved earlier.
-     * The difference is only which sources are asked: [SourceKind.worthPrefetching]
-     * narrows it to the ones that answer in a round trip rather than in ten
-     * seconds, because this runs speculatively for a track nobody has reached
-     * yet and a slow lookup would still be going when they did.
-     *
-     * ### What the caller must do with the answer
-     *
-     * Pin it. A returned stream is only useful if the *same* stream is what
-     * playback goes on to open, and the caller is expected to record it with
-     * [StreamChoice][com.music.bitchord.playback.StreamChoice] before caching a
-     * byte of it. Without that, playback re-runs the race, may land on a
-     * different source, and writes a second file into the cache entry the warm
-     * one already half-filled — which is the exact corruption
-     * [StreamChoice] exists to prevent, arrived at from a new direction.
-     *
-     * Returning null is not a failure and needs no handling beyond falling back
-     * to YouTube, which is what the caller would have done anyway: nothing has
-     * been pinned, so the ordinary resolve at playback time is untouched.
-     */
-    suspend fun prefetchSubstitute(target: TrackMatcher.Target): SourceStream? {
-        if (target.title.isBlank() || target.isVideo) return null
-        val active = SourceRegistry.activeForPlayback()
-        val youtube = active.firstOrNull { it.kind == SourceKind.YOUTUBE } ?: return null
-        val quick = rankedAbove(youtube.configId, active).filter { it.kind.worthPrefetching }
-        if (quick.isEmpty()) return null
-        val (source, stream) = bestAcross(quick, target, requestForNow()) ?: return null
-        TrackLog.d(
-            TAG,
-            "warmed: '${target.title}' from ${source.displayName} at ${stream.format.summary}",
-        )
-        return stream
-    }
+    // YouTube is gone: nothing to prefetch a substitute for anymore.
+    suspend fun prefetchSubstitute(target: TrackMatcher.Target): SourceStream? = null
 
-    /**
-     * A stream that genuinely satisfies the current request, for a track that
-     * is already playing on one that doesn't — or null if there isn't one.
-     *
-     * The same search as [substituteForYouTube] with two differences, both of
-     * which are only affordable because sound is already coming out:
-     *
-     *  - Every module *within* a source is waited for, including the one the
-     *    live path gave up on to get playback started (`waitForAll`). That
-     *    module is frequently the point: dropping it is what left the listener
-     *    on a stream from whoever happened to be quick.
-     *  - A result that isn't lossless is still worth having when it is
-     *    audibly better than what is playing — see [worthSwapping]. Refusing
-     *    those outright is what left a track on YouTube's 160kbps Opus while
-     *    a 320kbps AAC from a module sat in hand, unused, because it wasn't
-     *    the FLAC that had been asked for.
-     *  - Every source is asked, not only the ones that can serve lossless. That
-     *    follows from the bullet above: once a lossy stream can win, a lossy
-     *    *source* has to be allowed to offer one.
-     *
-     * Where it matches [substituteForYouTube] exactly is in taking the first
-     * answer that clears the bar rather than the best of all of them — see
-     * [bestAcross]. The bar here is [worthSwapping] rather than "satisfies the
-     * request", and it is a high one: anything clearing it is lossless, or a
-     * gain of [UPGRADE_MIN_GAIN_KBPS] over what the listener is hearing. Holding
-     * such a stream back to see whether a slower source can do better trades a
-     * certain improvement now for a possible improvement later, and "later" here
-     * was measured at thirteen seconds.
-     *
-     * The cost of that choice is real and worth naming: a slow source holding a
-     * FLAC can lose to a fast one holding a 320kbps AAC, and the track then
-     * plays lossy for the rest of its length, because [QualityUpgrade][com.music.bitchord.playback.QualityUpgrade]
-     * marks a track asked once the answer is yes. It is the same trade the live
-     * path makes, made for the same reason.
-     *
-     * [target] must carry the runtime of the track *actually playing* — see
-     * [matchAndStream]'s use of it. Swapping the audio under a listener is
-     * only defensible when the replacement is the same recording, and length
-     * is the check that a title cannot fake.
-     *
-     * @param playing what the listener is hearing now, so a lossy candidate
-     *   can be judged against it rather than against the request. Null means
-     *   unknown, and an unknown floor is treated as one nothing lossy clears:
-     *   a swap that might be a downgrade is worse than no swap at all.
-     * @param servedBy the [MusicSource.configId] already serving the track, if
-     *   known. Asking it again is wasted: the same source, asked the same
-     *   query at the same tier, is deterministic and can only reproduce the
-     *   stream already playing — which [worthSwapping] would reject anyway,
-     *   but not before spending a search and a stream call on it. See the
-     *   'isn't worth swapping ... off' log line this was written to stop.
-     */
+    // YouTube is gone: no upgrade target exists anymore.
     suspend fun upgradeFor(
         target: TrackMatcher.Target,
         playing: StreamFormat? = null,
         servedBy: String? = null,
-    ): SourceStream? {
-        if (target.title.isBlank() || target.durationSec == null || target.isVideo) return null
-        val request = requestForNow()
-        val active = SourceRegistry.activeForPlayback()
-        val youtube = active.firstOrNull { it.kind == SourceKind.YOUTUBE } ?: return null
-        // Every source gets asked, whether or not it can serve lossless, and
-        // they are asked at once.
-        //
-        // There used to be a `canServeLossless` skip here, applied whenever the
-        // request was [StreamRequest.Lossless] — which is what an unmetered
-        // connection asks for, i.e. nearly always. Its reasoning was that only a
-        // lossless source can satisfy a lossless request, and that is true and
-        // beside the point: this function is not serving the request, it is
-        // deciding whether anything beats what is *already playing*.
-        // [worthSwapping] is the bar for that, and a 320kbps source clears it
-        // over YouTube's 160kbps Opus by nearly twice the required margin.
-        //
-        // Racing them matters as much as asking them. Walked in rank order this
-        // took 13.6s on 'Bounce' — a module needed 7.6s to search and another
-        // 5.0s to produce a 128kbps MP3 that was then refused, and only after
-        // all of that was JioSaavn asked, which answered with 320kbps in 246ms:
-        //
-        // ```
-        //   46:44.823  'Bounce' is playing 141 kbps … looking for a better copy
-        //   46:57.477  Ricky's Addon offered MP3 · 128 kbps
-        //   46:57.478  … isn't worth swapping 'Bounce' off 141 kbps
-        //   46:57.478  ▶ JioSaavn searchSongs()        ← 12.65s in
-        //   46:58.608  upgraded to MP4 · 320 kbps at 13569ms
-        // ```
-        //
-        // Thirteen seconds of a 143-second track played at the wrong bitrate,
-        // and the seam then landed mid-song rather than near its start. Raced,
-        // the same swap happens inside a second.
-        val (source, chosen) = bestAcross(
-            rankedAbove(youtube.configId, active).filterNot { it.configId == servedBy },
-            target,
-            request,
-            waitForAll = true,
-            strictLength = true,
-            requireSharedArtist = true,
-        ) { candidate, stream ->
-            worthSwapping(stream.format, playing).also { worth ->
-                // Named rather than skipped silently. This is the one refusal
-                // in the upgrade path that discards a stream already found,
-                // matched and length-checked, and a silent skip reads in the log
-                // exactly like a source having nothing — which is how a null
-                // [playing] came to quietly turn the whole cached-track path
-                // lossless-only for a while without leaving a trace.
-                if (!worth) {
-                    TrackLog.d(
-                        TAG,
-                        "${candidate.displayName}'s ${stream.format.summary} isn't worth swapping " +
-                            "'${target.title}' off ${playing?.summary ?: "an unmeasured stream"}",
-                    )
-                }
-            }
-        } ?: return null
-        TrackLog.d(TAG, "upgrade found: '${target.title}' at ${chosen.format.summary} from ${source.displayName}")
-        return chosen
-    }
+    ): SourceStream? = null
 
     /**
      * The copy of a track about to be downloaded that is worth keeping over
@@ -494,7 +283,7 @@ object SourceResolver {
      *
      * ### The floor, and why a lossy answer can still lose to YouTube
      *
-     * A lossy candidate is only kept if it beats [YOUTUBE_BEST_AAC_KBPS] — the
+     * A lossy candidate is only kept if it beats [BEST_AAC_FLOOR_KBPS] — the
      * top of YouTube's own AAC ladder. Anything at or under that is trading one
      * lossy copy for another and giving up the more reliable fetch to do it,
      * which is what the old blanket refusal of settle-fors was really protecting
@@ -555,8 +344,7 @@ object SourceResolver {
         // nothing here answers — the download path never consults this list. So
         // an absent YouTube means everything enabled outranks it, which is
         // already what [rankedAbove] says about a config that isn't in the list.
-        val youtubeId = active.firstOrNull { it.kind == SourceKind.YOUTUBE }?.configId
-        val ranked = rankedAbove(youtubeId.orEmpty(), active)
+        val ranked = active
         val strictLength = target.durationSec != null
 
         // Who is in the bit-exact walk, and who is left to the race below it.
@@ -647,7 +435,7 @@ object SourceResolver {
             if (isBetter(stream.format, best?.second?.format)) best = source to stream
         }
         val (winner, chosen) = best ?: return@coroutineScope null
-        if (!beatsYouTubeAac(chosen.format)) {
+        if (!beatsBestAacFloor(chosen.format)) {
             TrackLog.d(
                 TAG,
                 "best offered for '${target.title}' is ${winner.displayName}'s " +
@@ -668,7 +456,7 @@ object SourceResolver {
      * YouTube's own AAC ladder would have given for the same track.
      *
      * The floor under [forDownload]'s step 2, and deliberately a floor rather
-     * than a comparison: see [YOUTUBE_BEST_AAC_KBPS] for why the rung YouTube
+     * than a comparison: see [BEST_AAC_FLOOR_KBPS] for why the rung YouTube
      * actually holds is not worth the walk it would take to find out.
      *
      * An unstated bitrate is a no. A download has to name the file before the
@@ -677,8 +465,8 @@ object SourceResolver {
      * [streamBest]'s [statesNothingLossy] allowance, deliberately: playback can
      * hand an undescribed URL to the decoder and let it work the codec out.
      */
-    internal fun beatsYouTubeAac(candidate: StreamFormat): Boolean =
-        (candidate.kbps ?: 0) > YOUTUBE_BEST_AAC_KBPS
+    internal fun beatsBestAacFloor(candidate: StreamFormat): Boolean =
+        (candidate.kbps ?: 0) > BEST_AAC_FLOOR_KBPS
 
     /**
      * Whether [candidate] is enough better than [playing] to be worth the
@@ -724,17 +512,8 @@ object SourceResolver {
         return kotlin.math.abs(candidateSec - playingSec) <= UPGRADE_DRIFT_SEC
     }
 
-    /**
-     * Whether anything outranks YouTube right now — i.e. whether a YouTube
-     * track is worth offering around before it is resolved.
-     *
-     * Answerable from the source list alone, without a search, which is what
-     * lets the cache and the read-ahead in
-     * [AudioCache][com.music.bitchord.playback.AudioCache] decide how to treat
-     * a YouTube id before anyone has asked a source for it.
-     */
-    fun canSubstituteForYouTube(): Boolean =
-        SourceRegistry.activeForPlayback().indexOfFirst { it.kind == SourceKind.YOUTUBE } > 0
+    // YouTube is gone: nothing can outrank it anymore.
+    fun canSubstituteForYouTube(): Boolean = false
 
     /**
      * The sources ranked above [configId], in order.
@@ -1183,7 +962,7 @@ object SourceResolver {
      * fetch. JioSaavn's 320 clears it; its 160 does not, and neither does a
      * module's 128kbps MP3 settle-for.
      */
-    private const val YOUTUBE_BEST_AAC_KBPS = 256
+    private const val BEST_AAC_FLOOR_KBPS = 256
 
     /**
      * How many kbps a lossy stream has to gain before it earns a seam in the

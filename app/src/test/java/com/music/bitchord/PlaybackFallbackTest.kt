@@ -57,17 +57,4 @@ class PlaybackFallbackTest {
             ),
         )
     }
-
-    @Test
-    fun `source fallback removes manifest and upgrade markers and gets its own rendition`() {
-        val failed =
-            "bitchord://source?s=addon-1&t=3919244&n=Bin%20Tere&a=Vishal%20%26%20Shekhar" +
-                "&manifest_reopen=dash&q=hifi#part"
-
-        assertEquals(
-            "bitchord://source?s=addon-1&t=3919244&n=Bin%20Tere&a=Vishal%20%26%20Shekhar" +
-                "&direct_youtube=1&q=original#part",
-            PlaybackFallback.directYouTubeSourceUri(failed),
-        )
-    }
 }

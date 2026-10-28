@@ -532,7 +532,7 @@ data class DetailPage(
     val sections: List<HomeShelf> = emptyList(),
     /**
      * Tracks YouTube offers to round out a playlist but that were never
-     * added — see [com.music.bitchord.data.innertube.InnertubeParser.parsePlaylistShelf].
+     * added.
      * Shown as their own section with a button to actually add them, rather
      * than folded into [songs] where they'd read as the user's own picks.
      */

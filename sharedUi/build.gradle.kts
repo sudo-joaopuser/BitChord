@@ -105,6 +105,7 @@ kotlin {
 android {
     namespace = "com.music.bitchord.sharedui"
     compileSdk = 36
+    buildToolsVersion = "36.0.0"
     defaultConfig {
         minSdk = 26
     }

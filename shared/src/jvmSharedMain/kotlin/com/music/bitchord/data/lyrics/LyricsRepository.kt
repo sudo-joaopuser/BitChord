@@ -203,8 +203,8 @@ object LyricsRepository {
                     ?.lines
             LyricsSource.UNISON -> Unison.lyrics(title, artist, durationMs, album)
             LyricsSource.SIMP_MUSIC -> SimpMusicLyrics.lyrics(videoId, durationMs)
-            LyricsSource.YOUTUBE_TRANSCRIPT -> YouTubeTranscriptLyrics.lyrics(videoId)
-            LyricsSource.YOUTUBE_MUSIC -> YouTubeMusicLyrics.lyrics(videoId)
+            LyricsSource.YOUTUBE_TRANSCRIPT -> null
+            LyricsSource.YOUTUBE_MUSIC -> null
             LyricsSource.LRCLIB -> LrcLib.lyrics(title, artist, durationMs)
             LyricsSource.MUSIXMATCH -> Musixmatch.lyrics(title, artist, durationMs)
             LyricsSource.PAXSENIX -> PaxSenix.lyrics(title, artist, durationMs, album)

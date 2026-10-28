@@ -5,9 +5,6 @@ import android.net.Uri
 import android.util.Log
 import com.music.bitchord.BuildConfig
 import com.music.bitchord.data.Http
-import com.music.bitchord.data.YtMusicRepository
-import com.music.bitchord.data.model.SearchFilter
-import com.music.bitchord.data.model.SearchResult
 import com.music.bitchord.data.settings.AppSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -200,31 +197,10 @@ object ArtistFacts {
         }
     }
 
-    /**
-     * The artist's picture and page, off a YouTube Music artist search.
-     *
-     * A search rather than a browse, because a browse needs the id and the id is
-     * half of what this is for. The top artist hit for a name is the artist:
-     * that is the same lookup the app already makes to find a video's catalogue
-     * release, and the same one a person would make.
-     */
+    // No artist card source left: the stored entry is kept as-is, just re-stamped.
     private suspend fun fetchCard(name: String) {
-        val hit = YtMusicRepository.search(name, SearchFilter.ARTISTS).getOrNull()
-            ?.filterIsInstance<SearchResult.Browse>()
-            ?.firstOrNull()
-            ?.item
         val entry = known[key(name)] ?: StoredArtist(key = key(name))
-        known[key(name)] = entry.copy(
-            // Only when the hit is actually this artist. A search for a name
-            // nobody has heard of still returns *something*, and filing a
-            // stranger's photograph under someone else's name is worse than
-            // keeping the sleeve.
-            image = hit?.thumbnailUrl?.takeIf { hit.title.equals(name, ignoreCase = true) }
-                ?: entry.image,
-            browseId = hit?.browseId?.takeIf { hit.title.equals(name, ignoreCase = true) }
-                ?: entry.browseId,
-            cardAt = System.currentTimeMillis(),
-        )
+        known[key(name)] = entry.copy(cardAt = System.currentTimeMillis())
         dirty = true
     }
 

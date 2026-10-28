@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
@@ -247,7 +248,7 @@ fun SourcesScreen(
                         onMetered = metered == true,
                         ceiling = ceiling,
                         // Anything the user configured is theirs to edit or
-                        // delete. JioSaavn and YouTube have no address to
+                        // delete. JioSaavn has no address to
                         // change, so a tap on them would open an empty editor.
                         // Spotify is the exception: a tap opens its login,
                         // which asks for the Developer Client ID in the app.
@@ -256,19 +257,13 @@ fun SourcesScreen(
                             config.kind.needsServer -> ({ onEditSource(config) })
                             else -> null
                         },
-                        // YouTube gets no switch at all — see
-                        // [SourceRegistry.setEnabled] for why one would be a lie.
-                        onToggle = if (config.kind == SourceKind.YOUTUBE) {
-                            null
-                        } else {
-                            ({ enabled ->
-                                if (config.kind == SourceKind.JIOSAAVN && enabled && !config.enabled) {
-                                    onConfirmJioSaavn()
-                                } else {
-                                    SourceRegistry.setEnabled(config.id, enabled)
-                                }
-                            })
-                        },
+                        onToggle = ({ enabled ->
+                            if (config.kind == SourceKind.JIOSAAVN && enabled && !config.enabled) {
+                                onConfirmJioSaavn()
+                            } else {
+                                SourceRegistry.setEnabled(config.id, enabled)
+                            }
+                        }),
                         handle = handle,
                     )
                 }
@@ -802,7 +797,6 @@ private fun SourceRow(
                 SourceKind.CUSTOM_MODULE -> Icons.Rounded.Extension
                 SourceKind.MODULE -> Icons.Rounded.Extension
                 SourceKind.JIOSAAVN -> Icons.Rounded.GraphicEq // or some other icon
-                SourceKind.YOUTUBE -> Icons.Rounded.PlayCircle
                 SourceKind.SPOTIFY -> Icons.Rounded.MusicNote
             },
             contentDescription = null,

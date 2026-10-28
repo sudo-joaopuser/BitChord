@@ -2,7 +2,6 @@ package com.music.bitchord.ui.tv.auth
 
 import android.content.Context
 import android.util.Log
-import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.model.SearchFilter
 import com.music.bitchord.data.model.SearchResult
 import com.music.bitchord.data.model.Song
@@ -196,7 +195,7 @@ object TvAuthServer {
                             sendJsonResponse(writer, "[]")
                         } else {
                             scope.launch {
-                                val results = YtMusicRepository.search(q, SearchFilter.SONGS).getOrDefault(emptyList())
+                                val results = emptyList<SearchResult>()
                                 val arr = JSONArray()
                                 results.take(15).forEach { item ->
                                     val song = (item as? SearchResult.Track)?.song

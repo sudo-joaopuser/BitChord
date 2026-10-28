@@ -29,7 +29,6 @@ import android.net.Uri
 import android.os.Process
 import android.util.Log
 import androidx.media3.common.util.UnstableApi
-import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.listentogether.ListenTogether
 import com.music.bitchord.data.model.SearchFilter
 import com.music.bitchord.data.model.SearchResult
@@ -834,10 +833,10 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
                     sourceAnalysisUris[trackId] = Uri.parse(AutomixAnalysisSource.opusUri(match.videoId))
                     Log.d(TAG, "Automix analysis for $trackId will use YouTube Opus ${match.videoId}")
                 } else {
-                    Log.d(TAG, "No YouTube match for Automix analysis of $trackId")
+                    Log.d(TAG, "No analysis match for Automix analysis of $trackId")
                 }
             } catch (error: Throwable) {
-                Log.d(TAG, "YouTube match failed for Automix analysis of $trackId: ${error.message}")
+                Log.d(TAG, "Analysis match failed for Automix analysis of $trackId: ${error.message}")
             } finally {
                 sourceResolutionAttempted.add(trackId)
                 sourceResolutions.remove(trackId)
@@ -846,18 +845,8 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
         return null
     }
 
-    private suspend fun findYouTubeMatch(target: TrackMatcher.Target): com.music.bitchord.data.model.Song? {
-        if (target.title.isBlank()) return null
-        for (query in TrackMatcher.queries(target)) {
-            val candidates = YtMusicRepository.search(query, SearchFilter.SONGS)
-                .getOrNull()
-                ?.filterIsInstance<SearchResult.Track>()
-                ?.map { it.song }
-                .orEmpty()
-            TrackMatcher.best(candidates, target)?.let { return it }
-        }
-        return null
-    }
+    // No YouTube match exists anymore: analysis uses the track's own audio.
+    private suspend fun findYouTubeMatch(target: TrackMatcher.Target): com.music.bitchord.data.model.Song? = null
 
     /**
      * What a whole-track pass came back with.

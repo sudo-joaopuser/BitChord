@@ -73,7 +73,7 @@ class JioSaavnSource(
             return null
         }
         // A rendition this thin is worse than the YouTube stream it would be
-        // replacing — see [SourceKind.YOUTUBE], which lands around 160kbps
+        // replacing — see the old YouTube source, which landed around 160kbps
         // Opus. Refused here rather than handed up and left to
         // [SourceResolver.worthSwapping], because a miss lets the resolver step
         // over this source to the next one, whereas a stream returned and then

@@ -31,9 +31,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * of the connection in force; the switches on the Sources screen are the
  * user's standing choice. Storing the first in the second lost the second.
  *
- * [SourceKind.YOUTUBE] is permitted on every rung: it is what [maxKbps]
- * caps, and it is the only source that can answer at all when the ones
- * above it are skipped.
+ * No source is permitted on the capped rungs: none of the remaining
+ * sources can be asked for a capped rendition.
  */
 fun AudioQuality.permits(kind: SourceKind): Boolean = when (this) {
     AudioQuality.LOSSLESS -> true
@@ -42,7 +41,8 @@ fun AudioQuality.permits(kind: SourceKind): Boolean = when (this) {
     // all of them before it answers, which is seconds spent to land on a
     // transcode JioSaavn already has at 320.
     AudioQuality.HIGH -> !kind.canServeLossless
-    AudioQuality.MEDIUM, AudioQuality.LOW -> kind == SourceKind.YOUTUBE
+    // No remaining source can be capped to a low rung, so none is permitted here.
+    AudioQuality.MEDIUM, AudioQuality.LOW -> false
 }
 
 /**
@@ -69,7 +69,7 @@ enum class OutputPcmMode(val label: String) {
  *
  * The rungs themselves differ too. On the YouTube fallback path a download is
  * Opus-in-WebM (see
- * [StreamResolver.resolveForDownload][com.music.bitchord.data.innertube.StreamResolver.resolveForDownload]),
+ * the source-backed download path,
  * while configured sources can supply their own AAC or lossless copy. And
  * [LOSSLESS] has no streaming counterpart at all: it is the only rung that lets
  * a configured source's bit-exact file end up as a file on disk.

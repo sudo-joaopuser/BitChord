@@ -7,7 +7,6 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import com.music.bitchord.data.DebugLog as Log
 import androidx.core.content.ContextCompat
-import com.music.bitchord.data.innertube.StreamResolver
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.settings.AppSettings
 import com.music.bitchord.data.settings.DownloadQuality
@@ -1190,20 +1189,10 @@ object Downloads {
                 },
             )
         }
-        // MediaStore.Audio refuses audio/webm on affected Android versions.
-        // Keep Opus for app-private downloads, but pin exported downloads to
-        // AAC-in-MP4 for both the initial resolve and any mid-transfer retry.
-        val requireM4a = AppSettings.exportDownloads.value
-        val stream = StreamResolver.resolveForDownload(track.videoId, quality.maxKbps, requireM4a)
-        return Route(
-            extension = stream.downloadExtension,
-            mimeType = stream.downloadMimeType,
-            describe = "${stream.kbps}kbps ${stream.mimeType}",
-            downloadFormat = youtubeDownloadBadge(stream.downloadExtension, stream.kbps),
-            write = { sink, onProgress ->
-                Downloader.fetch(track.videoId, stream, quality.maxKbps, requireM4a, sink, onProgress)
-            },
-        )
+        // No configured source served this track, and there is no
+        // YouTube fallback anymore. prepare() catches this and tries the
+        // song cache before giving up.
+        error("No configured source can serve this track for download")
     }
 
     /**

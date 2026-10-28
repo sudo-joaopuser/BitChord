@@ -22,7 +22,6 @@ import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.media3.datasource.cache.SimpleCache
 import java.io.IOException
-import com.music.bitchord.data.innertube.StreamResolver
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.settings.AppSettings
 import com.music.bitchord.data.sources.DeviceCodecs
@@ -1058,7 +1057,7 @@ object AudioCache {
 
     private val Origin.label: String
         get() = when (this) {
-            Origin.YOUTUBE -> SourceKind.YOUTUBE.label
+            Origin.YOUTUBE -> "YouTube"
             Origin.JIOSAAVN -> SourceKind.JIOSAAVN.label
             Origin.OTHER -> "Addon"
         }
@@ -1292,19 +1291,6 @@ object AudioCache {
                         fetchWhole(next)
                     }
                 }
-                launch {
-                    delay(PREFETCH_DELAY_MS)
-                    for (id in videoIds.take(QUEUE_LOOKAHEAD + 1).let { if (cacheBytes) it.drop(1) else it }) {
-                        // A track already pinned to another source has no use
-                        // for a YouTube URL: nothing will ask for one, and
-                        // minting it spends a client walk to fill a cache entry
-                        // that is never read.
-                        if (id == next && warmed != null) continue
-                        runCatching { StreamResolver.resolve(id) }
-                            .onFailure { TrackLog.d(TAG, "queue warm-up skipped $id: ${it.message}", about = id) }
-                        delay(QUEUE_RESOLVE_STAGGER_MS)
-                    }
-                }
             }
         }
     }
@@ -1364,30 +1350,10 @@ object AudioCache {
     }
 
     /** @return true once every range of [videoId] is on disk. */
-    private suspend fun cacheWholeOnce(videoId: String): Boolean {
-        val total = runCatching { StreamResolver.contentLength(videoId) }.getOrNull()
-            ?: return false
+    // No resolver left to ask for a track's length, so whole-file
+    // read-ahead for watch-URI tracks is off.
+    private suspend fun cacheWholeOnce(videoId: String): Boolean = false
 
-        var position = 0L
-        while (position < total) {
-            // Checked per chunk, not just once per pass: a track long enough
-            // to need several chunks can lose the race partway through one,
-            // and a queue change mid-pass is exactly the "the player has it
-            // now" case the guard in [fetchWhole] exists for.
-            if (pendingQueue.firstOrNull() != videoId) return false
-            val length = minOf(CHUNK_BYTES, total - position)
-            if (cache.getCachedBytes(videoId, position, length) < length) {
-                fetch(videoId, position, length)
-                // Written nowhere means the entry is held elsewhere; the rest
-                // of this pass would be just as wasted. See [fetch] for why
-                // this can be true even though the fetch just above returned
-                // without error.
-                if (cache.getCachedBytes(videoId, position, length) < length) return false
-            }
-            position += length
-        }
-        return true
-    }
 
     /**
      * Pulls [length] bytes of whatever [uri] names into the cache, under [uri]'s
@@ -1652,11 +1618,7 @@ object AudioCache {
         if (!analysisHeadsInFlight.add(videoId)) return
         scope.launch {
             try {
-                val total = runCatching { StreamResolver.contentLength(videoId) }
-                    .onFailure {
-                        TrackLog.w(TAG, "contentLength failed for $videoId: ${it.message}", videoId)
-                    }
-                    .getOrNull() ?: 0L
+                val total = 0L
                 val want = analysisHeadSize(total)
                 analysisHeadWant[videoId] = want
                 TrackLog.w(
