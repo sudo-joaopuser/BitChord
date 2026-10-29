@@ -39,7 +39,10 @@ import com.music.bitchord.data.model.LibraryState
 import com.music.bitchord.data.model.LikeStatus
 import com.music.bitchord.data.model.MoodGenre
 import com.music.bitchord.data.model.MoodGenreSection
+import com.music.bitchord.spotifycore.SpotifyCatalog
 import com.music.bitchord.spotifycore.SpotifyCoreSession
+import com.music.bitchord.spotifycore.formatSpotifyError
+import com.music.bitchord.data.model.BrowseItem
 import com.music.bitchord.data.model.PlaylistPrivacy
 import com.music.bitchord.data.model.SearchFilter
 import com.music.bitchord.data.model.SearchResult
@@ -1161,9 +1164,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Call when the library tab becomes visible. */
     fun onLibraryShown() {
         loadPlaylists()
+        // A Library that never resolved (initial Loading, or an Error
+        // from before the Spotify session was restored) must load now:
+        // otherwise the tab keeps showing skeletons with no request.
+        if (_library.value !is UiState.Success) {
+            loadLibrary()
+            return
+        }
         if (!libraryStale) return
         libraryStale = false
-        if (_library.value is UiState.Success) refresh(Feed.LIBRARY)
+        refresh(Feed.LIBRARY)
     }
 
     init {
@@ -1172,8 +1182,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         startTypeaheadMediaPipeline()
         loadHome()
         loadExplore()
+        // Library loads for Spotify sessions too, not only legacy
+        // sign-in: fetchLibrary resolves to content, empty or error
+        // (never Loading), and the tab hides the state behind its
+        // sign-in message while no session exists.
+        loadLibrary()
         if (_signedIn.value) {
-            loadLibrary()
             loadAccount()
             loadPlaylists()
         }
@@ -1263,7 +1277,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun refresh(feed: Feed) {
         if (feed in _refreshing.value) return
-        if (feed == Feed.LIBRARY && !_signedIn.value) return
+        // A Spotify-only account has no legacy sign-in; its Library
+        // still refreshes through the Spotify catalog, so only skip a
+        // Library refresh when there is no Spotify session either.
+        if (feed == Feed.LIBRARY && !_signedIn.value && !SpotifyCoreSession.isConnected) return
         val identity = listenerKey()
         _refreshing.value = _refreshing.value + feed
         viewModelScope.launch {
@@ -1281,15 +1298,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { fetchExplore() }
     }
 
-    private suspend fun fetchExplore() {
-        // The YouTube browse feed is gone, so Explore used to be a
-        // hardcoded error. With a Spotify session it now shows real
-        // content: the user's top tracks as tappable grid items
-        // (browseId = spotify:track:..., played via playSpotifyUri by
-        // the Activity's category-click handler). Without a session it
-        // shows a Spotify sign-in entry instead of anything YouTube.
-        val catalog = SpotifyCoreSession.catalog
+    /** The clean-core catalog, rebuilt from saved tokens when the
+     * session exists but its catalog was dropped (process death). */
+    private fun spotifyCatalog(): SpotifyCatalog? =
+        SpotifyCoreSession.catalog
             ?: if (SpotifyCoreSession.restore(getApplication())) SpotifyCoreSession.catalog else null
+
+    // Fully qualified: the legacy data.spotify.SpotifyTrack is also
+    // imported in this file, so the short name would be ambiguous.
+    private fun com.music.bitchord.spotifycore.SpotifyTrack.toSong(): Song {
+        val minutes = durationMs / 60_000
+        val seconds = (durationMs % 60_000) / 1_000
+        return Song(
+            videoId = uri,
+            title = title,
+            artist = artists.joinToString(", "),
+            thumbnailUrl = imageUrl,
+            durationText = "%d:%02d".format(minutes, seconds),
+            albumName = album,
+        )
+    }
+
+    private suspend fun fetchExplore() {
+        // The YouTube browse feed is gone. Explore must NOT mirror Home:
+        // Home owns top tracks, so Explore shows what Home does not —
+        // new releases, featured playlists and browse categories, each
+        // opening a Spotify collection page or a category's playlists.
+        // Without a session it shows a Spotify sign-in entry instead of
+        // anything YouTube.
+        val catalog = spotifyCatalog()
         if (catalog == null) {
             _explore.value = UiState.Success(
                 listOf(
@@ -1307,27 +1344,94 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             )
             return
         }
-        val tracks = runCatching { catalog.topTracks(20) }.getOrDefault(emptyList())
-        if (tracks.isEmpty()) {
-            _explore.value = UiState.Error(text(R.string.nothing_to_explore))
-            return
-        }
-        _explore.value = UiState.Success(
-            listOf(
-                MoodGenreSection(
-                    title = text(R.string.spotify_top_tracks),
-                    items = tracks.map { track ->
+        val country = runCatching { catalog.profileInfo().country }.getOrNull()
+        val sections = mutableListOf<MoodGenreSection>()
+        runCatching { catalog.newReleases(20) }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }?.let { albums ->
+                sections += MoodGenreSection(
+                    title = text(R.string.spotify_home_new_releases),
+                    items = albums.map { album ->
                         MoodGenre(
-                            title = listOf(track.title, track.artists.joinToString(", "))
+                            title = listOf(album.name, album.artists)
                                 .filter { it.isNotBlank() }.joinToString(" — "),
-                            browseId = track.uri,
-                            params = "spotify-track",
-                            thumbnailUrl = track.imageUrl,
+                            browseId = "spotify:album:${album.id}",
+                            params = "spotify-album",
+                            thumbnailUrl = album.imageUrl,
                         )
                     },
+                )
+            }
+        runCatching { catalog.featuredPlaylists(20, country) }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }?.let { playlists ->
+                sections += MoodGenreSection(
+                    title = text(R.string.spotify_home_featured),
+                    items = playlists.map { playlist ->
+                        MoodGenre(
+                            title = listOf(playlist.name, playlist.owner.orEmpty())
+                                .filter { it.isNotBlank() }.joinToString(" — "),
+                            browseId = "spotify:playlist:${playlist.id}",
+                            params = "spotify-playlist",
+                            thumbnailUrl = playlist.imageUrl,
+                        )
+                    },
+                )
+            }
+        runCatching { catalog.categories(20, country) }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }?.let { categories ->
+                sections += MoodGenreSection(
+                    title = text(R.string.spotify_explore_categories),
+                    items = categories.map { category ->
+                        MoodGenre(
+                            title = category.name,
+                            browseId = "spotify:category:${category.id}",
+                            params = "spotify-category",
+                            thumbnailUrl = category.imageUrl,
+                        )
+                    },
+                )
+            }
+        if (sections.isEmpty()) {
+            _explore.value = UiState.Error(text(R.string.spotify_explore_empty))
+            return
+        }
+        _explore.value = UiState.Success(sections)
+    }
+
+    /** A category's playlists replace Explore until refresh restores it. */
+    fun loadExploreCategory(categoryId: String, categoryTitle: String) {
+        _explore.value = UiState.Loading
+        viewModelScope.launch {
+            val catalog = spotifyCatalog()
+            if (catalog == null) {
+                _explore.value = UiState.Error(text(R.string.spotify_catalog_missing))
+                return@launch
+            }
+            val country = runCatching { catalog.profileInfo().country }.getOrNull()
+            val playlists = runCatching { catalog.categoryPlaylists(categoryId, 20, country) }
+                .onFailure { _explore.value = UiState.Error(formatSpotifyError(it)) }
+                .getOrNull().orEmpty()
+            if (playlists.isEmpty() && _explore.value !is UiState.Error) {
+                _explore.value = UiState.Error(text(R.string.spotify_explore_empty))
+                return@launch
+            }
+            if (_explore.value is UiState.Error) return@launch
+            _explore.value = UiState.Success(
+                listOf(
+                    MoodGenreSection(
+                        title = categoryTitle,
+                        items = playlists.map { playlist ->
+                            MoodGenre(
+                                title = listOf(playlist.name, playlist.owner.orEmpty())
+                                    .filter { it.isNotBlank() }.joinToString(" — "),
+                                browseId = "spotify:playlist:${playlist.id}",
+                                params = "spotify-playlist",
+                                thumbnailUrl = playlist.imageUrl,
+                            )
+                        },
+                    ),
                 ),
-            ),
-        )
+            )
+        }
     }
 
     /**
@@ -1371,7 +1475,70 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _homePendingShelves.value = 0
         _home.value = UiState.Success(emptyList())
         _homeRecentlyPlayedLoading.value = false
+        viewModelScope.launch { loadSpotifyHomeShelves(generation) }
+    }
 
+    /**
+     * Home's Spotify sections, beyond the "Mais ouvidas" row the
+     * Activity renders separately: the user's own playlists, new
+     * releases and featured playlists — real Web API sections, never
+     * top tracks again. A section whose call fails is left out rather
+     * than failing the page; a stale load never appends over a newer
+     * one (generation guard). Collection cards open through
+     * openDetail's Spotify interception; their taps play direct-first.
+     */
+    private suspend fun loadSpotifyHomeShelves(generation: Long) {
+        val catalog = spotifyCatalog() ?: return
+        val country = runCatching { catalog.profileInfo().country }.getOrNull()
+        val shelves = mutableListOf<HomeShelf>()
+        runCatching { catalog.playlists(20) }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }?.let { playlists ->
+                shelves += HomeShelf(
+                    title = text(R.string.spotify_home_playlists),
+                    items = playlists.map { playlist ->
+                        ShelfItem(
+                            title = playlist.name,
+                            subtitle = playlist.owner.orEmpty(),
+                            thumbnailUrl = playlist.imageUrl,
+                            videoId = null,
+                            browseId = "spotify:playlist:${playlist.id}",
+                        )
+                    },
+                )
+            }
+        runCatching { catalog.newReleases(20) }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }?.let { albums ->
+                shelves += HomeShelf(
+                    title = text(R.string.spotify_home_new_releases),
+                    items = albums.map { album ->
+                        ShelfItem(
+                            title = album.name,
+                            subtitle = album.artists,
+                            thumbnailUrl = album.imageUrl,
+                            videoId = null,
+                            browseId = "spotify:album:${album.id}",
+                        )
+                    },
+                )
+            }
+        runCatching { catalog.featuredPlaylists(20, country) }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }?.let { playlists ->
+                shelves += HomeShelf(
+                    title = text(R.string.spotify_home_featured),
+                    items = playlists.map { playlist ->
+                        ShelfItem(
+                            title = playlist.name,
+                            subtitle = playlist.owner.orEmpty(),
+                            thumbnailUrl = playlist.imageUrl,
+                            videoId = null,
+                            browseId = "spotify:playlist:${playlist.id}",
+                        )
+                    },
+                )
+            }
+        if (shelves.isNotEmpty() && generation == homeLoadGeneration.get()) {
+            publishHomeShelves(shelves)
+        }
     }
 
     /**
@@ -1421,15 +1588,55 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun loadLibrary() {
-        if (!_signedIn.value) return
         val identity = listenerKey()
         _library.value = UiState.Loading
         viewModelScope.launch { fetchLibrary(identity) }
     }
 
+    /**
+     * The Library used to hang on skeletons forever for a Spotify-only
+     * account: loadLibrary returned early without a legacy Google
+     * sign-in, so _library stayed at its initial UiState.Loading and
+     * the tab rendered placeholders with no request in flight. Now
+     * every path ends in content, an honest empty state, or an error
+     * with retry — never Loading. A Spotify session contributes its
+     * playlists shelf (cards open the Spotify collection page) and
+     * its liked tracks (via the Library's Liked Songs folder link).
+     */
     private suspend fun fetchLibrary(identity: String?) {
-        val next = UiState.Error(text(R.string.library_empty))
-        if (identity == listenerKey()) _library.value = next
+        val catalog = spotifyCatalog()
+        if (catalog == null) {
+            if (identity == listenerKey()) {
+                _library.value = UiState.Error(text(R.string.spotify_catalog_missing))
+            }
+            return
+        }
+        val page = runCatching {
+            val playlists = catalog.playlists()
+            val shelves = mutableListOf<HomeShelf>()
+            if (playlists.isNotEmpty()) {
+                shelves += HomeShelf(
+                    title = text(R.string.spotify_library_playlists),
+                    items = playlists.map { playlist ->
+                        ShelfItem(
+                            title = playlist.name,
+                            subtitle = playlist.owner.orEmpty(),
+                            thumbnailUrl = playlist.imageUrl,
+                            videoId = null,
+                            browseId = "spotify:playlist:${playlist.id}",
+                        )
+                    },
+                )
+            }
+            LibraryPage(
+                likedSongs = emptyList(),
+                librarySongs = emptyList(),
+                shelves = shelves,
+            )
+        }
+        if (identity != listenerKey()) return
+        page.onSuccess { _library.value = UiState.Success(it) }
+            .onFailure { _library.value = UiState.Error(formatSpotifyError(it)) }
     }
 
     /**
@@ -1893,8 +2100,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * at the top of the results — which is the whole point of ranking it there —
      * and one ranked below appears under them instead.
      *
-     * Only the Songs filter fans out: albums, artists and playlists are
-     * browse-shaped, and [MusicSource] deliberately answers for tracks only.
+     * Only the Songs filter fans out over [MusicSource] (tracks only, by
+     * design). Albums, Artists and Playlists used to return empty by
+     * design too — a filter that could never match anything. Now they
+     * ask the Spotify catalog's typed search directly (type=album /
+     * artist / playlist, 10 per type for new-app ceilings) and come
+     * back as Browse rows, which the Search tab already renders with
+     * taps into the Spotify collection pages. ALL gets tracks plus
+     * all three typed sets. Videos has no catalog behind it — there is
+     * no video on Spotify — so it honestly stays empty.
      *
      * Asked of the playback list rather than every enabled source, so a result
      * offered here is one this connection's ceiling would actually let play —
@@ -1905,7 +2119,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         query: String,
         filter: SearchFilter,
     ): Pair<List<SearchResult>, List<SearchResult>> = coroutineScope {
-        if (filter != SearchFilter.SONGS && filter != SearchFilter.ALL) return@coroutineScope emptyList<SearchResult>() to emptyList()
+        if (filter == SearchFilter.VIDEOS) return@coroutineScope emptyList<SearchResult>() to emptyList()
         // The quality ceiling gates *streams*, but a Spotify row never
         // takes a stream from it: its tap goes to the direct player or
         // to Connect. On a MEDIUM/LOW ceiling, permits() refuses every
@@ -1917,8 +2131,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val active = (playback + listOfNotNull(spotify)).distinctBy { it.configId }
         val youtubeRank = active.size
 
-        val answers = active
-            .map { source ->
+        val answers = if (filter == SearchFilter.SONGS || filter == SearchFilter.ALL) {
+            active.map { source ->
                 source to async {
                     // Per-source, so one slow or unreachable server delays the
                     // results by at most this much rather than for as long as
@@ -1936,6 +2150,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }.getOrDefault(emptyList())
                 }
             }
+        } else {
+            emptyList()
+        }
 
         val above = mutableListOf<SearchResult>()
         val below = mutableListOf<SearchResult>()
@@ -1944,7 +2161,89 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val rank = active.indexOfFirst { it.configId == source.configId }
             if (rank in 0 until youtubeRank) above += rows else below += rows
         }
+        if (filter != SearchFilter.SONGS) {
+            above += spotifyTypedResults(query, filter)
+        }
         above to below
+    }
+
+    /** Spotify Browse rows for one typed filter, or all three for ALL. */
+    private suspend fun spotifyTypedResults(
+        query: String,
+        filter: SearchFilter,
+    ): List<SearchResult.Browse> = coroutineScope {
+        val catalog = spotifyCatalog() ?: return@coroutineScope emptyList()
+        // Always launched; a type the filter does not ask for resolves
+        // to an empty list inside its own async instead of a nullable
+        // Deferred, which Kotlin's inference rejects here.
+        val albums = async {
+            if (filter == SearchFilter.ALBUMS || filter == SearchFilter.ALL) {
+                runCatching {
+                    withTimeout(SPOTIFY_SEARCH_TIMEOUT_MS) {
+                        catalog.searchAlbums(query, SOURCE_SEARCH_LIMIT)
+                    }
+                }.getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
+        }
+        val artists = async {
+            if (filter == SearchFilter.ARTISTS || filter == SearchFilter.ALL) {
+                runCatching {
+                    withTimeout(SPOTIFY_SEARCH_TIMEOUT_MS) {
+                        catalog.searchArtists(query, SOURCE_SEARCH_LIMIT)
+                    }
+                }.getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
+        }
+        val playlists = async {
+            if (filter == SearchFilter.PLAYLISTS || filter == SearchFilter.ALL) {
+                runCatching {
+                    withTimeout(SPOTIFY_SEARCH_TIMEOUT_MS) {
+                        catalog.searchPlaylists(query, SOURCE_SEARCH_LIMIT)
+                    }
+                }.getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
+        }
+        val rows = mutableListOf<SearchResult.Browse>()
+        albums.await().forEach { album ->
+            rows += SearchResult.Browse(
+                BrowseItem(
+                    browseId = "spotify:album:${album.id}",
+                    title = album.name,
+                    subtitle = album.artists,
+                    thumbnailUrl = album.imageUrl,
+                    type = BrowseType.ALBUM,
+                ),
+            )
+        }
+        artists.await().forEach { artist ->
+            rows += SearchResult.Browse(
+                BrowseItem(
+                    browseId = "spotify:artist:${artist.id}",
+                    title = artist.name,
+                    subtitle = "",
+                    thumbnailUrl = artist.imageUrl,
+                    type = BrowseType.ARTIST,
+                ),
+            )
+        }
+        playlists.await().forEach { playlist ->
+            rows += SearchResult.Browse(
+                BrowseItem(
+                    browseId = "spotify:playlist:${playlist.id}",
+                    title = playlist.name,
+                    subtitle = playlist.owner.orEmpty(),
+                    thumbnailUrl = playlist.imageUrl,
+                    type = BrowseType.PLAYLIST,
+                ),
+            )
+        }
+        rows
     }
 
     /**
@@ -2140,6 +2439,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             openSpotifyPage(browseId, title, subtitle, thumbnailUrl)
             return
         }
+        // Clean-core Spotify collections (Home/Explore/Library/Search
+        // cards) open straight from the Web API catalog — never through
+        // the legacy SpotifyLibrary/YouTube-matching path above, which
+        // cannot resolve a Spotify id without a YouTube match.
+        if (browseId.startsWith("spotify:album:") ||
+            browseId.startsWith("spotify:artist:") ||
+            browseId.startsWith("spotify:playlist:") ||
+            browseId == "spotify:liked"
+        ) {
+            openSpotifyCollection(browseId, title, subtitle, thumbnailUrl)
+            return
+        }
         val resolved = browseTypeOf(browseId, type)
         _detailStack.value += DetailPage(
             browseId = browseId,
@@ -2307,6 +2618,66 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * A clean-core Spotify collection page: album, artist, playlist or
+     * the Liked Songs folder, loaded from the Web API catalog. Its
+     * rows carry spotify:track: ids, so taps run through playFrom's
+     * playSpotifyUri branch — direct player first, Connect fallback —
+     * never the old queue. Ends in songs, an honest empty message, or
+     * an error; never a spinner that never lands.
+     */
+    private fun openSpotifyCollection(
+        browseId: String,
+        title: String,
+        subtitle: String,
+        thumbnailUrl: String?,
+    ) {
+        val type = when {
+            browseId.startsWith("spotify:album:") -> BrowseType.ALBUM
+            browseId.startsWith("spotify:artist:") -> BrowseType.ARTIST
+            else -> BrowseType.PLAYLIST
+        }
+        _detailStack.value += DetailPage(
+            browseId = browseId,
+            title = title,
+            subtitle = subtitle,
+            thumbnailUrl = thumbnailUrl,
+            songs = UiState.Loading,
+            type = type,
+        )
+        viewModelScope.launch {
+            val catalog = spotifyCatalog()
+            if (catalog == null) {
+                updateDetailSongs(browseId, UiState.Error(text(R.string.spotify_catalog_missing)))
+                return@launch
+            }
+            val result = runCatching {
+                when {
+                    browseId.startsWith("spotify:album:") ->
+                        catalog.albumTracks(browseId.removePrefix("spotify:album:"))
+                    browseId.startsWith("spotify:artist:") ->
+                        catalog.artistTopTracks(browseId.removePrefix("spotify:artist:"))
+                    browseId == "spotify:liked" -> catalog.likedTracks()
+                    else -> catalog.playlistTracks(browseId.removePrefix("spotify:playlist:"))
+                }
+            }
+            val songs = result.getOrNull()?.map { it.toSong() }.orEmpty()
+            if (result.isFailure) {
+                updateDetailSongs(browseId, UiState.Error(formatSpotifyError(result.exceptionOrNull()!!)))
+            } else if (songs.isEmpty()) {
+                updateDetailSongs(browseId, UiState.Error(text(R.string.spotify_collection_empty)))
+            } else {
+                updateDetailSongs(browseId, UiState.Success(songs))
+            }
+        }
+    }
+
+    private fun updateDetailSongs(browseId: String, songs: UiState<List<Song>>) {
+        _detailStack.value = _detailStack.value.map { page ->
+            if (page.browseId == browseId) page.copy(songs = songs) else page
         }
     }
 

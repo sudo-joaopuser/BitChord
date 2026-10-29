@@ -102,15 +102,25 @@ object SpotifyDirectPlayer {
      * [lastError] instead, because librespot reports it async.
      */
     suspend fun play(context: Context, uri: String, title: String?, artist: String?) {
-        withContext(Dispatchers.IO) {
-            val auth = SpotifyCoreSession.auth
-                ?: throw SpotifyApiException(401, "Not signed in")
-            val token = auth.accessToken()
-            ensureSession(context, token)
-            val p = player ?: throw SpotifyApiException(0, "Player direto indisponível")
-            _lastError.value = null
-            _nowPlaying.value = NowPlaying(uri, title, artist, true)
-            p.load(uri, true, false)
+        // A failed open used to throw without touching lastError, so
+        // the only trace was the caller's log line: the user saw the
+        // Connect fallback's "open the official app" guidance with no
+        // hint the direct player had failed at all. Record the reason
+        // first, then rethrow so the caller can still fall back.
+        try {
+            withContext(Dispatchers.IO) {
+                val auth = SpotifyCoreSession.auth
+                    ?: throw SpotifyApiException(401, "Not signed in")
+                val token = auth.accessToken()
+                ensureSession(context, token)
+                val p = player ?: throw SpotifyApiException(0, "Player direto indisponível")
+                _lastError.value = null
+                _nowPlaying.value = NowPlaying(uri, title, artist, true)
+                p.load(uri, true, false)
+            }
+        } catch (e: Exception) {
+            _lastError.value = formatSpotifyError(e)
+            throw e
         }
     }
 

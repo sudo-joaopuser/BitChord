@@ -60,6 +60,32 @@ internal object SpotifyParsing {
         if (images != null && images.length() > 0) {
             images.optJSONObject(0)?.optString("url")?.takeIf { it.isNotBlank() }
         } else null
+
+    fun albumFrom(o: JSONObject): SpotifyAlbum {
+        val artists = o.optJSONArray("artists")
+        val names = (0 until (artists?.length() ?: 0)).mapNotNull { j ->
+            artists?.optJSONObject(j)?.optString("name")
+        }
+        return SpotifyAlbum(
+            id = o.optString("id"),
+            name = o.optString("name"),
+            artists = names.joinToString(", "),
+            imageUrl = firstImage(o.optJSONArray("images")),
+        )
+    }
+
+    fun artistFrom(o: JSONObject): SpotifyArtist = SpotifyArtist(
+        id = o.optString("id"),
+        uri = o.optString("uri"),
+        name = o.optString("name"),
+        imageUrl = firstImage(o.optJSONArray("images")),
+    )
+
+    fun categoryFrom(o: JSONObject): SpotifyCategory = SpotifyCategory(
+        id = o.optString("id"),
+        name = o.optString("name"),
+        imageUrl = firstImage(o.optJSONArray("icons")),
+    )
 }
 
 class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
@@ -145,16 +171,83 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
         return (0 until albums.length()).mapNotNull { i ->
             val o = albums.optJSONObject(i) ?: return@mapNotNull null
             if (o.optString("id").isBlank()) return@mapNotNull null
-            val artists = o.optJSONArray("artists")
-            val names = (0 until (artists?.length() ?: 0)).mapNotNull { j ->
-                artists?.optJSONObject(j)?.optString("name")
-            }
-            SpotifyAlbum(
-                id = o.optString("id"),
-                name = o.optString("name"),
-                artists = names.joinToString(", "),
-                imageUrl = SpotifyParsing.firstImage(o.optJSONArray("images")),
-            )
+            SpotifyParsing.albumFrom(o)
+        }
+    }
+
+    // Typed search: the same 10-result ceiling as tracks applies to
+    // every type for apps created after 11 Feb 2026, so clamp here
+    // once instead of trusting each caller.
+    private fun searchPath(query: String, type: String, limit: Int, market: String?): String {
+        val q = URLEncoder.encode(query, "UTF-8")
+        val safeLimit = limit.coerceIn(1, 10)
+        val marketParam = market?.takeIf { it.isNotBlank() }?.let { "&market=$it" }.orEmpty()
+        return "/search?q=$q&type=$type&limit=$safeLimit$marketParam"
+    }
+
+    private fun itemsOf(json: JSONObject, key: String): JSONArray? =
+        json.optJSONObject(key)?.optJSONArray("items")
+
+    override suspend fun searchAlbums(query: String, limit: Int, market: String?): List<SpotifyAlbum> {
+        val albums = itemsOf(get(searchPath(query, "album", limit, market)), "albums")
+            ?: return emptyList()
+        return (0 until albums.length()).mapNotNull { i ->
+            val o = albums.optJSONObject(i) ?: return@mapNotNull null
+            if (o.optString("id").isBlank()) return@mapNotNull null
+            SpotifyParsing.albumFrom(o)
+        }
+    }
+
+    override suspend fun searchArtists(query: String, limit: Int, market: String?): List<SpotifyArtist> {
+        val artists = itemsOf(get(searchPath(query, "artist", limit, market)), "artists")
+            ?: return emptyList()
+        return (0 until artists.length()).mapNotNull { i ->
+            val o = artists.optJSONObject(i) ?: return@mapNotNull null
+            if (o.optString("id").isBlank()) return@mapNotNull null
+            SpotifyParsing.artistFrom(o)
+        }
+    }
+
+    override suspend fun searchPlaylists(query: String, limit: Int, market: String?): List<SpotifyPlaylist> {
+        val playlists = itemsOf(get(searchPath(query, "playlist", limit, market)), "playlists")
+            ?: return emptyList()
+        return (0 until playlists.length()).mapNotNull { i ->
+            val o = playlists.optJSONObject(i) ?: return@mapNotNull null
+            if (o.optString("id").isBlank()) return@mapNotNull null
+            SpotifyParsing.playlistFrom(o)
+        }
+    }
+
+    override suspend fun featuredPlaylists(limit: Int, country: String?): List<SpotifyPlaylist> {
+        val countryParam = country?.takeIf { it.isNotBlank() }?.let { "&country=$it" }.orEmpty()
+        val playlists = get("/browse/featured-playlists?limit=$limit$countryParam")
+            .optJSONObject("playlists")?.optJSONArray("items") ?: return emptyList()
+        return (0 until playlists.length()).mapNotNull { i ->
+            val o = playlists.optJSONObject(i) ?: return@mapNotNull null
+            if (o.optString("id").isBlank()) return@mapNotNull null
+            SpotifyParsing.playlistFrom(o)
+        }
+    }
+
+    override suspend fun categories(limit: Int, country: String?): List<SpotifyCategory> {
+        val countryParam = country?.takeIf { it.isNotBlank() }?.let { "&country=$it" }.orEmpty()
+        val cats = get("/browse/categories?limit=$limit$countryParam")
+            .optJSONObject("categories")?.optJSONArray("items") ?: return emptyList()
+        return (0 until cats.length()).mapNotNull { i ->
+            val o = cats.optJSONObject(i) ?: return@mapNotNull null
+            if (o.optString("id").isBlank()) return@mapNotNull null
+            SpotifyParsing.categoryFrom(o)
+        }
+    }
+
+    override suspend fun categoryPlaylists(categoryId: String, limit: Int, country: String?): List<SpotifyPlaylist> {
+        val countryParam = country?.takeIf { it.isNotBlank() }?.let { "&country=$it" }.orEmpty()
+        val playlists = get("/browse/categories/$categoryId/playlists?limit=$limit$countryParam")
+            .optJSONObject("playlists")?.optJSONArray("items") ?: return emptyList()
+        return (0 until playlists.length()).mapNotNull { i ->
+            val o = playlists.optJSONObject(i) ?: return@mapNotNull null
+            if (o.optString("id").isBlank()) return@mapNotNull null
+            SpotifyParsing.playlistFrom(o)
         }
     }
 
@@ -183,8 +276,9 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
         }
     }
 
-    override suspend fun artistTopTracks(artistId: String): List<SpotifyTrack> {
-        val tracks = get("/artists/$artistId/top-tracks?market=BR").optJSONArray("tracks")
+    override suspend fun artistTopTracks(artistId: String, market: String?): List<SpotifyTrack> {
+        val marketParam = market?.takeIf { it.isNotBlank() } ?: "BR"
+        val tracks = get("/artists/$artistId/top-tracks?market=$marketParam").optJSONArray("tracks")
             ?: return emptyList()
         return (0 until tracks.length()).mapNotNull { i ->
             tracks.optJSONObject(i)?.let { SpotifyParsing.trackFrom(it) }

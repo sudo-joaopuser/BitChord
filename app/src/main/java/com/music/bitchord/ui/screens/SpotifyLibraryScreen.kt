@@ -39,6 +39,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.music.bitchord.BuildConfig
 import com.music.bitchord.R
 import com.music.bitchord.sharedui.resources.Res
 import com.music.bitchord.sharedui.resources.spotify_logo
@@ -86,6 +87,7 @@ fun SpotifyLibraryScreen(
     var expandedAlbumId by remember { mutableStateOf<String?>(null) }
     var expandedAlbumTracks by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
     var playError by remember { mutableStateOf<String?>(null) }
+    var playInfo by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
@@ -188,17 +190,28 @@ fun SpotifyLibraryScreen(
             // Direct playback inside this app first (librespot, no
             // official app needed); Connect is the fallback when the
             // direct session cannot open, exactly like the shared
-            // playSpotifyUri path in MainActivity.
-            val directOk = runCatching {
+            // playSpotifyUri path in MainActivity. A direct failure
+            // used to be swallowed here (only .isSuccess was checked),
+            // so the tap silently became a Connect attempt and the user
+            // saw just the "open the official app" guidance. Now the
+            // real reason stays on screen, and a Connect fallback says
+            // so instead of passing for in-app playback.
+            val directFailure = runCatching {
                 SpotifyDirectPlayer.play(
                     context, track.uri, track.title,
                     track.artists.joinToString(", "),
                 )
-            }.isSuccess
-            if (directOk) {
+            }.exceptionOrNull()
+            if (directFailure == null) {
                 playError = null
+                playInfo = null
                 return@launch
             }
+            playError = context.getString(
+                R.string.spotify_direct_failed,
+                formatSpotifyError(directFailure),
+            )
+            playInfo = null
             val player = SpotifyCoreSession.player
             if (player == null) {
                 playError = "Spotify is not connected"
@@ -219,14 +232,15 @@ fun SpotifyLibraryScreen(
                     }
                     else -> player.play(listOf(track.uri))
                 }
-            }.onSuccess { playError = null }
-                .onFailure { failure ->
-                    playError = if (failure is SpotifyApiException && failure.status == 404) {
-                        "NO_ACTIVE_DEVICE"
-                    } else {
-                        formatSpotifyError(failure)
-                    }
+            }.onSuccess {
+                playInfo = context.getString(R.string.spotify_via_connect)
+            }.onFailure { failure ->
+                playError = if (failure is SpotifyApiException && failure.status == 404) {
+                    "NO_ACTIVE_DEVICE"
+                } else {
+                    formatSpotifyError(failure)
                 }
+            }
         }
     }
 
@@ -342,7 +356,12 @@ fun SpotifyLibraryScreen(
                     )
                 }
             }
-            directNowPlaying?.let { now ->
+            // The strip used to render only while a direct track was
+            // playing, so a session that failed to open left no trace:
+            // lastError was set but nothing drew it. An async load
+            // failure (lastError with a stale now-playing) and a
+            // failed open (lastError, no now-playing) both show now.
+            if (directNowPlaying != null || directError != null) {
                 item {
                     Row(
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
@@ -351,15 +370,15 @@ fun SpotifyLibraryScreen(
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text(
-                                text = now.title ?: "Spotify",
+                                text = directNowPlaying?.title ?: "Spotify",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onBackground,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            if (!now.artist.isNullOrBlank()) {
+                            if (!directNowPlaying?.artist.isNullOrBlank()) {
                                 Text(
-                                    text = now.artist,
+                                    text = directNowPlaying?.artist.orEmpty(),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -374,8 +393,10 @@ fun SpotifyLibraryScreen(
                                 )
                             }
                         }
-                        Button(onClick = { SpotifyDirectPlayer.playPause() }) {
-                            Text(if (now.isPlaying) "Pausar" else "Tocar")
+                        if (directNowPlaying != null) {
+                            Button(onClick = { SpotifyDirectPlayer.playPause() }) {
+                                Text(if (directNowPlaying?.isPlaying == true) "Pausar" else "Tocar")
+                            }
                         }
                     }
                 }
@@ -469,6 +490,16 @@ fun SpotifyLibraryScreen(
                             message
                         },
                         color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                }
+            }
+            playInfo?.let { message ->
+                item {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                     )
                 }
@@ -605,6 +636,17 @@ fun SpotifyLibraryScreen(
                         }
                     }
                 }
+            }
+            // Build mark: proves which commit this APK was built from,
+            // so the next device test can settle "was it the new build?"
+            // by reading the footer instead of guessing.
+            item {
+                Text(
+                    text = stringResource(R.string.spotify_build, BuildConfig.SPOTIFY_BUILD_MARK),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                )
             }
         }
     }

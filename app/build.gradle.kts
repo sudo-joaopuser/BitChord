@@ -86,6 +86,25 @@ android {
         // the same GitHub release, told apart by file name. See
         // AppUpdateChecker.apkAssetUrl.
         buildConfigField("String", "UPDATE_APK_PREFIX", "\"BitChord-\"")
+        // Build mark for the Spotify screen footer: the commit this APK
+        // was built from, so a device test proves which build is
+        // installed. A "+" suffix means the tree was dirty at build
+        // time; the delivered APK is built from a clean committed tree.
+        val spotifyBuildMark = try {
+            fun gitOutput(vararg args: String): String {
+                val proc = ProcessBuilder(listOf("git", *args))
+                    .directory(rootDir).redirectErrorStream(true).start()
+                val out = proc.inputStream.bufferedReader().readText().trim()
+                proc.waitFor()
+                return out
+            }
+            val head = gitOutput("rev-parse", "--short", "HEAD").ifEmpty { "dev" }
+            val dirty = gitOutput("status", "--porcelain").isNotEmpty()
+            head + if (dirty) "+" else ""
+        } catch (e: Exception) {
+            "dev"
+        }
+        buildConfigField("String", "SPOTIFY_BUILD_MARK", "\"$spotifyBuildMark\"")
     }
 
     splits {

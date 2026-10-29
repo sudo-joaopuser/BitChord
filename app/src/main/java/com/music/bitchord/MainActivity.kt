@@ -67,6 +67,7 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.MoreHoriz
@@ -174,6 +175,7 @@ import com.music.bitchord.ui.screens.DiscordScreen
 import com.music.bitchord.ui.screens.EqualizerScreen
 import com.music.bitchord.ui.screens.HistoryScreen
 import com.music.bitchord.ui.screens.LibraryReplayEntry
+import com.music.bitchord.ui.screens.LibraryLink
 import com.music.bitchord.ui.screens.libraryDeviceItems
 import com.music.bitchord.ui.screens.SPOTIFY_BROWSE_ID
 import com.music.bitchord.ui.screens.libraryLinks
@@ -268,6 +270,7 @@ import com.music.bitchord.ui.components.TopBarAccountButton
 import com.music.bitchord.ui.screens.SegmentedControl
 import com.music.bitchord.ui.components.SearchField
 import com.music.bitchord.sharedui.resources.Res as SharedRes
+import com.music.bitchord.sharedui.resources.spotify_logo
 import com.music.bitchord.sharedui.resources.search_hint
 import com.music.bitchord.sharedui.resources.search_addons_hint
 import com.music.bitchord.sharedui.resources.search_library_hint
@@ -1487,16 +1490,24 @@ private fun BitChordApp(
         scope.launch {
             // Direct playback first: pause whatever Media3 is doing so
             // two sources never sound at once, then try librespot. A
-            // direct failure (no token, no streaming scope, network)
-            // falls through to the Connect path below instead of
-            // failing the tap outright.
-            val directOk = runCatching {
+            // direct failure used to be only a log line, so the user
+            // saw just the Connect fallback's "open the official app"
+            // guidance with no hint the direct player had failed or
+            // why. Now the real reason is toasted AND recorded on the
+            // Spotify screen's now-playing strip (see lastError), and
+            // only then does the tap fall back to Connect — announced
+            // as Connect, never disguised as in-app playback.
+            val directFailure = runCatching {
                 controller?.pause()
                 SpotifyDirectPlayer.play(context, uri, null, null)
-            }.onFailure { failure ->
-                TrackLog.w("BitChord", "Spotify direct play failed, falling back to Connect", failure)
-            }.isSuccess
-            if (directOk) return@launch
+            }.exceptionOrNull()
+            if (directFailure == null) return@launch
+            TrackLog.w("BitChord", "Spotify direct play failed, falling back to Connect", directFailure)
+            Toast.makeText(
+                context,
+                context.getString(R.string.spotify_direct_failed, formatSpotifyError(directFailure)),
+                Toast.LENGTH_LONG,
+            ).show()
             val connectPlayer = player ?: SpotifyCoreSession.player
             if (connectPlayer == null) {
                 Toast.makeText(context, R.string.spotify_sign_in, Toast.LENGTH_SHORT).show()
@@ -1514,6 +1525,8 @@ private fun BitChordApp(
                     }
                     else -> connectPlayer.play(listOf(uri))
                 }
+            }.onSuccess {
+                Toast.makeText(context, R.string.spotify_via_connect, Toast.LENGTH_SHORT).show()
             }.onFailure { failure ->
                 val message = if (failure is SpotifyApiException && failure.status == 404) {
                     context.getString(R.string.spotify_no_active_device)
@@ -1665,8 +1678,9 @@ private fun BitChordApp(
         activeRadioSeed = null
         scope.launch {
             // Spotify search hits and Home Spotify rows carry a Spotify
-            // URI, not a streamable id: route them to Connect, never to
-            // the old queue. See playSpotifyUri.
+            // URI, not a streamable id: route them to playSpotifyUri
+            // (direct player first, Connect fallback), never to the
+            // old queue.
             if (playSpotifyUri(song.videoId)) return@launch
             if (refusedByHost()) return@launch
             val c = controller ?: return@launch
@@ -3321,14 +3335,29 @@ private fun BitChordApp(
                                 listState = exploreListState,
                                 // Spotify grid items from fetchExplore: the
                                 // sign-in entry opens the Spotify login, a
-                                // track plays via Connect (never the old
-                                // player), anything else keeps the old path.
+                                // track plays via playSpotifyUri (direct
+                                // first, Connect fallback, never the old
+                                // player), a collection opens its Spotify
+                                // page, a category loads its playlists.
+                                // Anything else keeps the old path.
                                 onCategoryClick = { item ->
                                     when {
                                         item.browseId == "spotify:login" ->
                                             showSpotifyCoreLogin = true
                                         item.browseId.startsWith("spotify:track:") ->
                                             playSpotifyUri(item.browseId)
+                                        item.browseId.startsWith("spotify:album:") ||
+                                            item.browseId.startsWith("spotify:playlist:") ->
+                                            viewModel.openDetail(
+                                                browseId = item.browseId,
+                                                title = item.title,
+                                                thumbnailUrl = item.thumbnailUrl,
+                                            )
+                                        item.browseId.startsWith("spotify:category:") ->
+                                            viewModel.loadExploreCategory(
+                                                item.browseId.removePrefix("spotify:category:"),
+                                                item.title,
+                                            )
                                         else -> viewModel.openMoodGenre(item)
                                     }
                                 },
@@ -3544,7 +3573,26 @@ private fun BitChordApp(
                                 onRefresh = { viewModel.refresh(MainViewModel.Feed.LIBRARY) },
                                 pullState = libraryPull,
                                 contentPadding = listPadding,
-                                links = libraryLinks(),
+                                // The clean-core Spotify session has no
+                                // legacy account row, so the Library's
+                                // folder list would show no Spotify entry
+                                // at all: add the Liked Songs folder while
+                                // connected. It opens the liked collection
+                                // page (spotify:liked), whose taps play
+                                // through the direct player first.
+                                links = libraryLinks() + listOfNotNull(
+                                    LibraryLink(
+                                        item = ShelfItem(
+                                            title = context.getString(R.string.spotify_liked),
+                                            subtitle = context.getString(R.string.spotify_liked_subtitle),
+                                            thumbnailUrl = null,
+                                            videoId = null,
+                                            browseId = "spotify:liked",
+                                        ),
+                                        icon = Icons.Rounded.Favorite,
+                                        logo = SharedRes.drawable.spotify_logo,
+                                    ).takeIf { spotifyConnected },
+                                ),
                                 deviceItems = libraryDeviceItems(downloadedReleases) + localPlaylistItems,
                             )
                         }
