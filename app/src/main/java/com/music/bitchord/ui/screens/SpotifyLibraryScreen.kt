@@ -24,6 +24,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,8 +42,10 @@ import coil3.compose.AsyncImage
 import com.music.bitchord.R
 import com.music.bitchord.sharedui.resources.Res
 import com.music.bitchord.sharedui.resources.spotify_logo
+import com.music.bitchord.spotifycore.SpotifyAlbum
 import com.music.bitchord.spotifycore.SpotifyApiException
 import com.music.bitchord.spotifycore.SpotifyCoreSession
+import com.music.bitchord.spotifycore.SpotifyDirectPlayer
 import com.music.bitchord.spotifycore.formatSpotifyError
 import com.music.bitchord.spotifycore.SpotifyPlaylist
 import com.music.bitchord.spotifycore.SpotifyTrack
@@ -51,9 +54,11 @@ import org.jetbrains.compose.resources.painterResource
 
 /**
  * The clean-core Spotify library: playlists and Liked Songs from the
- * official Web API, loaded after sign-in. Tapping a track asks the
- * Connect player to play it on an active Spotify device; with no
- * device active the error is shown instead of a silent miss.
+ * official Web API, loaded after sign-in, plus the account's top
+ * tracks and new releases. Tapping a track plays it inside this app
+ * first (librespot direct player) and falls back to Connect when the
+ * direct session cannot open; with no device active the error is
+ * shown instead of a silent miss.
  */
 @Composable
 fun SpotifyLibraryScreen(
@@ -65,6 +70,7 @@ fun SpotifyLibraryScreen(
     var playlists by remember { mutableStateOf<List<SpotifyPlaylist>>(emptyList()) }
     var liked by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
     var topTracks by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
+    var newReleases by remember { mutableStateOf<List<SpotifyAlbum>>(emptyList()) }
     var profileName by remember { mutableStateOf<String?>(null) }
     var profileId by remember { mutableStateOf<String?>(null) }
     var profileCountry by remember { mutableStateOf<String?>(null) }
@@ -77,6 +83,8 @@ fun SpotifyLibraryScreen(
     var loadAttempt by remember { mutableStateOf(0) }
     var expandedPlaylistId by remember { mutableStateOf<String?>(null) }
     var expandedTracks by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
+    var expandedAlbumId by remember { mutableStateOf<String?>(null) }
+    var expandedAlbumTracks by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
     var playError by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
@@ -85,12 +93,18 @@ fun SpotifyLibraryScreen(
     var searched by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // Direct playback state: the strip below shows what librespot is
+    // playing inside this app and pauses/resumes it, since the Media3
+    // bottom bar has no item for a direct track.
+    val directNowPlaying by SpotifyDirectPlayer.nowPlaying.collectAsState()
+    val directError by SpotifyDirectPlayer.lastError.collectAsState()
 
     LaunchedEffect(connected, loadAttempt) {
         if (!connected) {
             playlists = emptyList()
             liked = emptyList()
             topTracks = emptyList()
+            newReleases = emptyList()
             profileName = null
             profileId = null
             profileCountry = null
@@ -131,6 +145,7 @@ fun SpotifyLibraryScreen(
             playlists = emptyList()
             liked = emptyList()
             topTracks = emptyList()
+            newReleases = emptyList()
             profileName = null
             profileId = null
             profileCountry = null
@@ -145,14 +160,14 @@ fun SpotifyLibraryScreen(
         runCatching {
             playlists = catalog.playlists()
             liked = catalog.likedTracks()
-            // Fallback content: a library with no playlists and no Liked
-            // Songs still has top tracks to show and play.
-            topTracks = if (playlists.isEmpty() && liked.isEmpty()) {
-                catalog.topTracks()
-            } else {
-                emptyList()
-            }
+            // Top tracks always now, not only when the library is
+            // empty: they are the screen's recommendation section.
+            topTracks = catalog.topTracks()
         }.onFailure { error = formatSpotifyError(it) }
+        // New releases are a bonus section: their failure must not
+        // hide the library above, so they load separately and a
+        // failure simply leaves the section out.
+        runCatching { newReleases = catalog.newReleases() }
         // Totals straight from the API, fetched separately so a totals
         // failure never hides the lists: total > 0 with 0 items means
         // parsing broke, total = 0 means the account really is empty.
@@ -169,12 +184,26 @@ fun SpotifyLibraryScreen(
     }
 
     fun play(track: SpotifyTrack) {
-        val player = SpotifyCoreSession.player
-        if (player == null) {
-            playError = "Spotify is not connected"
-            return
-        }
         scope.launch {
+            // Direct playback inside this app first (librespot, no
+            // official app needed); Connect is the fallback when the
+            // direct session cannot open, exactly like the shared
+            // playSpotifyUri path in MainActivity.
+            val directOk = runCatching {
+                SpotifyDirectPlayer.play(
+                    context, track.uri, track.title,
+                    track.artists.joinToString(", "),
+                )
+            }.isSuccess
+            if (directOk) {
+                playError = null
+                return@launch
+            }
+            val player = SpotifyCoreSession.player
+            if (player == null) {
+                playError = "Spotify is not connected"
+                return@launch
+            }
             runCatching {
                 // Connect needs a device: prefer the active one, else move
                 // playback to the first available device, else let the
@@ -313,6 +342,44 @@ fun SpotifyLibraryScreen(
                     )
                 }
             }
+            directNowPlaying?.let { now ->
+                item {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = now.title ?: "Spotify",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (!now.artist.isNullOrBlank()) {
+                                Text(
+                                    text = now.artist,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            directError?.let { message ->
+                                Text(
+                                    text = message,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        }
+                        Button(onClick = { SpotifyDirectPlayer.playPause() }) {
+                            Text(if (now.isPlaying) "Pausar" else "Tocar")
+                        }
+                    }
+                }
+            }
             item {
                 Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
                     OutlinedTextField(
@@ -424,6 +491,47 @@ fun SpotifyLibraryScreen(
                     )
                 }
             }
+            if (newReleases.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "Novidades",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 4.dp),
+                    )
+                }
+                items(newReleases, key = { it.id }) { album ->
+                    LibraryRow(
+                        title = album.name,
+                        subtitle = album.artists,
+                        imageUrl = album.imageUrl,
+                        onClick = {
+                            val catalog = SpotifyCoreSession.catalog
+                            if (expandedAlbumId == album.id) {
+                                expandedAlbumId = null
+                                expandedAlbumTracks = emptyList()
+                            } else if (catalog != null) {
+                                expandedAlbumId = album.id
+                                scope.launch {
+                                    runCatching { catalog.albumTracks(album.id) }
+                                        .onSuccess { expandedAlbumTracks = it }
+                                        .onFailure { error = formatSpotifyError(it) }
+                                }
+                            }
+                        },
+                    )
+                    if (expandedAlbumId == album.id) {
+                        expandedAlbumTracks.forEach { track ->
+                            LibraryRow(
+                                title = track.title,
+                                subtitle = track.artists.joinToString(", "),
+                                imageUrl = track.imageUrl,
+                                onClick = { play(track) },
+                            )
+                        }
+                    }
+                }
+            }
             if (liked.isNotEmpty()) {
                 item {
                     Text(
@@ -483,7 +591,7 @@ fun SpotifyLibraryScreen(
                     }
                 }
             }
-            if (!loading && error == null && profileLoaded && !catalogMissing && playlists.isEmpty() && liked.isEmpty() && topTracks.isEmpty()) {
+            if (!loading && error == null && profileLoaded && !catalogMissing && playlists.isEmpty() && liked.isEmpty() && topTracks.isEmpty() && newReleases.isEmpty()) {
                 item {
                     Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
                         Text(

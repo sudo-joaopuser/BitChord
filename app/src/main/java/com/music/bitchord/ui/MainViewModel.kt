@@ -1905,8 +1905,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         query: String,
         filter: SearchFilter,
     ): Pair<List<SearchResult>, List<SearchResult>> = coroutineScope {
-        if (filter != SearchFilter.SONGS) return@coroutineScope emptyList<SearchResult>() to emptyList()
-        val active = SourceRegistry.activeForPlayback()
+        if (filter != SearchFilter.SONGS && filter != SearchFilter.ALL) return@coroutineScope emptyList<SearchResult>() to emptyList()
+        // The quality ceiling gates *streams*, but a Spotify row never
+        // takes a stream from it: its tap goes to the direct player or
+        // to Connect. On a MEDIUM/LOW ceiling, permits() refuses every
+        // kind, so asking only activeForPlayback() left the tab empty
+        // on metered connections even with Spotify enabled. Keep the
+        // ceiling for the rest, and always include Spotify.
+        val playback = SourceRegistry.activeForPlayback()
+        val spotify = SourceRegistry.active().firstOrNull { it.kind == SourceKind.SPOTIFY }
+        val active = (playback + listOfNotNull(spotify)).distinctBy { it.configId }
         val youtubeRank = active.size
 
         val answers = active
@@ -1914,9 +1922,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 source to async {
                     // Per-source, so one slow or unreachable server delays the
                     // results by at most this much rather than for as long as
-                    // its socket takes to give up.
+                    // its socket takes to give up. Spotify gets longer: its
+                    // first search after a token refresh is two round trips
+                    // (refresh + search) and 4s turned that into a silent
+                    // empty list via getOrDefault below.
+                    val timeoutMs = if (source.kind == SourceKind.SPOTIFY) {
+                        SPOTIFY_SEARCH_TIMEOUT_MS
+                    } else {
+                        SOURCE_SEARCH_TIMEOUT_MS
+                    }
                     runCatching {
-                        withTimeout(SOURCE_SEARCH_TIMEOUT_MS) { source.search(query, SOURCE_SEARCH_LIMIT) }
+                        withTimeout(timeoutMs) { source.search(query, SOURCE_SEARCH_LIMIT) }
                     }.getOrDefault(emptyList())
                 }
             }
@@ -2024,6 +2040,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
          * for the sake of results the user can still get by searching again.
          */
         const val SOURCE_SEARCH_TIMEOUT_MS = 4000L
+        const val SPOTIFY_SEARCH_TIMEOUT_MS = 15000L
 
         /** Enough to be worth scrolling, short enough not to bury YouTube's own rows. */
         const val SOURCE_SEARCH_LIMIT = 10

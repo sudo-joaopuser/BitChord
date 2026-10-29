@@ -26,6 +26,13 @@ data class SpotifyTrack(
     val isPlayable: Boolean = true,
 )
 
+data class SpotifyAlbum(
+    val id: String,
+    val name: String,
+    val artists: String,
+    val imageUrl: String?,
+)
+
 data class SpotifyPlaylist(
     val id: String,
     val uri: String,
@@ -134,6 +141,7 @@ interface SpotifyCatalog {
     suspend fun likedTracks(): List<SpotifyTrack>
     suspend fun likedTotal(): Int
     suspend fun topTracks(limit: Int = 50): List<SpotifyTrack>
+    suspend fun newReleases(limit: Int = 20): List<SpotifyAlbum>
     suspend fun search(query: String, limit: Int = 10, market: String? = null): List<SpotifyTrack>
     suspend fun albumTracks(albumId: String): List<SpotifyTrack>
     suspend fun artistTopTracks(artistId: String): List<SpotifyTrack>

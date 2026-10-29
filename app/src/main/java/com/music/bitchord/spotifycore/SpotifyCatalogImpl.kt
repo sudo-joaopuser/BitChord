@@ -135,6 +135,29 @@ class SpotifyCatalogImpl(private val tokens: TokenSource) : SpotifyCatalog {
         return SpotifyParsing.tracksFrom(items)
     }
 
+    // Browse new releases: albums, not tracks, so the screen expands an
+    // album into its tracks on tap (albumTracks) instead of a dead row.
+    // Deliberately NOT /recommendations: Spotify removed it for new
+    // apps in November 2024, so it would only ever error here.
+    override suspend fun newReleases(limit: Int): List<SpotifyAlbum> {
+        val albums = get("/browse/new-releases?limit=$limit")
+            .optJSONObject("albums")?.optJSONArray("items") ?: return emptyList()
+        return (0 until albums.length()).mapNotNull { i ->
+            val o = albums.optJSONObject(i) ?: return@mapNotNull null
+            if (o.optString("id").isBlank()) return@mapNotNull null
+            val artists = o.optJSONArray("artists")
+            val names = (0 until (artists?.length() ?: 0)).mapNotNull { j ->
+                artists?.optJSONObject(j)?.optString("name")
+            }
+            SpotifyAlbum(
+                id = o.optString("id"),
+                name = o.optString("name"),
+                artists = names.joinToString(", "),
+                imageUrl = SpotifyParsing.firstImage(o.optJSONArray("images")),
+            )
+        }
+    }
+
     override suspend fun search(query: String, limit: Int, market: String?): List<SpotifyTrack> {
         val q = URLEncoder.encode(query, "UTF-8")
         // Apps created after 11 Feb 2026 cap search at 10 results per

@@ -1,5 +1,6 @@
 package com.music.bitchord.data.sources
 
+import com.music.bitchord.data.TrackLog
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.spotifycore.SpotifyCoreSession
 
@@ -15,6 +16,9 @@ import com.music.bitchord.spotifycore.SpotifyCoreSession
 class SpotifySource(
     override val config: SourceConfig,
 ) : MusicSource, SourceRegistry.ConfigBacked {
+    private companion object {
+        const val TAG = "BitChord"
+    }
 
     override val configId: String get() = config.id
     override val kind: SourceKind get() = SourceKind.SPOTIFY
@@ -33,8 +37,15 @@ class SpotifySource(
         waitForAll: Boolean,
         request: StreamRequest?,
     ): List<Song> {
-        val catalog = SpotifyCoreSession.catalog ?: return emptyList()
+        val catalog = SpotifyCoreSession.catalog
+        if (catalog == null) {
+            // No session (yet): the app restores it at startup, but a
+            // search fired before that used to vanish without a trace.
+            TrackLog.w(TAG, "Spotify search skipped: no catalog (not connected yet?)")
+            return emptyList()
+        }
         return runCatching { catalog.search(query, limit) }
+            .onFailure { TrackLog.w(TAG, "Spotify search failed for '$query'", it) }
             .getOrDefault(emptyList())
             .map { track ->
                 val minutes = track.durationMs / 60_000

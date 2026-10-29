@@ -22,5 +22,10 @@ fun Display?.supportedPerformanceRefreshRates(): List<Int> {
 }
 
 /** Maps a saved preference to a real mode, including preferences restored on another device. */
-fun Display?.resolvePerformanceRefreshRate(preferred: Int): Int =
-    supportedPerformanceRefreshRates().minBy { abs(it - preferred) }
+fun Display?.resolvePerformanceRefreshRate(preferred: Int): Int {
+    // minBy was removed from the stdlib; the list is never empty
+    // (supportedPerformanceRefreshRates falls back to one mode), so
+    // the fallback below is unreachable in practice.
+    val rates = supportedPerformanceRefreshRates()
+    return rates.minByOrNull { abs(it - preferred) } ?: rates.first()
+}

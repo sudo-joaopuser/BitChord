@@ -834,7 +834,7 @@ object AudioCache {
                 entries.firstNotNullOfOrNull { it.meta.get(name, null as String?)?.takeIf(String::isNotBlank) }
             val bytes = entries.sumOf { it.bytes }
             val lastUsed = entries.maxOf { it.touched }
-            val origin = entries.maxBy { it.bytes }.origin
+            val origin = entries.maxByOrNull { it.bytes }?.origin ?: Origin.OTHER
             val complete = entries.any { it.complete }
             val noted = notedSongs[mediaId]
             val art = field(META_ART) ?: noted?.thumbnailUrl

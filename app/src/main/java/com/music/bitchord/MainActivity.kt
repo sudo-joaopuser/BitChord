@@ -130,6 +130,7 @@ import com.music.bitchord.spotifycore.SpotifyAuthImpl
 import com.music.bitchord.spotifycore.SpotifyCatalogImpl
 import com.music.bitchord.spotifycore.SpotifyConnectPlayer
 import com.music.bitchord.spotifycore.SpotifyCoreSession
+import com.music.bitchord.spotifycore.SpotifyDirectPlayer
 import com.music.bitchord.spotifycore.formatSpotifyError
 import com.music.bitchord.spotifycore.SpotifyLoginFlow
 import com.music.bitchord.auth.WebSessionMode
@@ -1110,7 +1111,12 @@ private fun BitChordApp(
      * of starting a second of audio that [PartySync] then has to stop.
      */
     val togglePlayPause: () -> Unit = {
-        controller?.let { c ->
+        // Direct Spotify playback has no Media3 item, so the app's one
+        // play/pause has to reach it explicitly: while a direct track
+        // is up, this button pauses/resumes librespot, not the queue.
+        if (SpotifyDirectPlayer.isActive) {
+            SpotifyDirectPlayer.playPause()
+        } else controller?.let { c ->
             val party = ListenTogether.state.value
             if (party.controlsLocked && !party.playback.isPlaying && !c.isPlaying) {
                 showHostOnlyNotice()
@@ -1464,7 +1470,9 @@ private fun BitChordApp(
     /**
      * A Spotify URI has no stream URL for the old player: handing it to
      * the Media3 queue would resolve to nothing and play in silence.
-     * Route it to Connect instead (active device, else first available,
+     * It plays inside this app first (librespot direct player, no
+     * official app needed); when the direct session cannot open, it
+     * falls back to Connect (active device, else first available,
      * else a toast telling the user to start something in the official
      * app). Returns true when the song was a Spotify track and the
      * caller must not queue it anywhere else.
@@ -1472,22 +1480,39 @@ private fun BitChordApp(
     fun playSpotifyUri(uri: String): Boolean {
         if (!uri.startsWith("spotify:track:")) return false
         val player = SpotifyCoreSession.player
-        if (player == null) {
+        if (player == null && SpotifyCoreSession.auth == null) {
             Toast.makeText(context, R.string.spotify_sign_in, Toast.LENGTH_SHORT).show()
             return true
         }
         scope.launch {
+            // Direct playback first: pause whatever Media3 is doing so
+            // two sources never sound at once, then try librespot. A
+            // direct failure (no token, no streaming scope, network)
+            // falls through to the Connect path below instead of
+            // failing the tap outright.
+            val directOk = runCatching {
+                controller?.pause()
+                SpotifyDirectPlayer.play(context, uri, null, null)
+            }.onFailure { failure ->
+                TrackLog.w("BitChord", "Spotify direct play failed, falling back to Connect", failure)
+            }.isSuccess
+            if (directOk) return@launch
+            val connectPlayer = player ?: SpotifyCoreSession.player
+            if (connectPlayer == null) {
+                Toast.makeText(context, R.string.spotify_sign_in, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
             runCatching {
-                val devices = player.devices()
+                val devices = connectPlayer.devices()
                 val active = devices.firstOrNull { it.isActive && it.id != null }
                 val first = devices.firstOrNull { it.id != null }
                 when {
-                    active != null -> player.play(listOf(uri), active.id)
+                    active != null -> connectPlayer.play(listOf(uri), active.id)
                     first != null -> {
-                        player.transfer(first.id!!)
-                        player.play(listOf(uri), first.id)
+                        connectPlayer.transfer(first.id!!)
+                        connectPlayer.play(listOf(uri), first.id)
                     }
-                    else -> player.play(listOf(uri))
+                    else -> connectPlayer.play(listOf(uri))
                 }
             }.onFailure { failure ->
                 val message = if (failure is SpotifyApiException && failure.status == 404) {
@@ -2927,6 +2952,7 @@ private fun BitChordApp(
                                     SpotifyCoreSession.catalog = null
                                     SpotifyCoreSession.player = null
                                     SpotifyCoreSession.appRemotePlayer = null
+                                    scope.launch { SpotifyDirectPlayer.close() }
                                     spotifyConnected = false
                                 },
                                 account = account,

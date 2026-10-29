@@ -199,6 +199,12 @@ android {
             excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
             // The three BouncyCastle jars (bcprov, bcutil, bcpkix) ship one licence between them.
             pickFirsts += setOf("META-INF/LICENSE.md", "META-INF/LICENSE.txt", "META-INF/NOTICE.md")
+            // librespot-lib and librespot-player both ship this proto
+            // descriptor; the contents are identical.
+            pickFirsts += "context_player_options.proto"
+            // librespot-lib and librespot-player both ship this logging
+            // config; the contents are identical.
+            pickFirsts += "log4j2.xml"
         }
     }
     buildFeatures {
@@ -320,8 +326,29 @@ dependencies {
     // ---- Auth/session storage ----
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // Spotify Canvas (kept) still serialises with protobuf-lite.
-    implementation("com.google.protobuf:protobuf-javalite:4.35.0")
+    // Spotify Canvas (kept) only uses CodedInputStream from protobuf,
+    // which the full runtime also provides — and librespot needs the
+    // full runtime (GeneratedMessageV3 etc.), which javalite lacks.
+    // Keeping both jars fails the build on duplicate classes, so the
+    // full runtime serves both: it contains the lite classes too.
+    implementation("com.google.protobuf:protobuf-java:3.23.0")
+
+    // ---- Spotify direct playback (librespot-java): plays Spotify audio
+    // inside this app, without the official Spotify app — the way the
+    // librespot-based Linux clients (ncspot, psst, spotify-player) do.
+    // This is NOT the official Web API: it speaks Spotify's internal
+    // protocol, so it sits behind the official Connect path as a
+    // fallback, never in front of it. The plain librespot-player
+    // artifact is a fat jar that bundles its own dependencies (and
+    // duplicates them against the app's), so the thin build is
+    // vendored in libs/ (Gradle's proxy repeatedly failed to fetch
+    // the thin classifier from Central even though the file exists)
+    // and the modules it needs are declared explicitly below.
+    implementation(files("libs/librespot-player-thin.jar"))
+    implementation("xyz.gianlu.librespot:librespot-lib:1.6.3")
+    implementation("xyz.gianlu.librespot:librespot-sink-api:1.6.3")
+    implementation("xyz.gianlu.librespot:librespot-sink:1.6.3")
+    implementation("xyz.gianlu.librespot:librespot-dacp:1.6.3")
 
     // ---- JS module execution: QuickJS VM for style source plugins ----
     // The same VM runs QuickJsExecutor's module sources.
